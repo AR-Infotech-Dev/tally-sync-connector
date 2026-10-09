@@ -1,0 +1,66 @@
+{
+  "name": "tally-sync-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Flowups Tally Sync Connector desktop application",
+  "author": "AR Infotech",
+  "type": "module",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "concurrently -k -n UI,Electron -c blue,green \"npm:dev:ui\" \"npm:dev:electron\"",
+    "dev:ui": "vite --config vite.config.js",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && nodemon --watch src/main --watch src/preload --ext js,cjs --exec electron .",
+    "build": "vite build --config vite.config.js",
+    "package:win": "npm run build && node scripts/build-protected.js --x64",
+    "start": "npm run dev"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.6.0",
+    "concurrently": "^9.2.0",
+    "electron": "^37.0.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.28.2",
+    "javascript-obfuscator": "^5.9.0",
+    "nodemon": "^3.1.10",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.flowups.tally-sync-connector",
+    "productName": "Flowups Tally Sync Connector",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/main/**/*",
+      "src/preload/**/*",
+      "dist/renderer/**/*",
+      "package.json"
+    ],
+    "artifactName": "${productName} Setup ${version} ${arch}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Flowups Tally Sync Connector"
+    }
+  }
+}
