@@ -38,8 +38,8 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
    *
    * @param {object} tally Endpoint settings. `timeoutMs` may override the default.
    * @param {string} xml Full XML request body.
-   * @param {{timeoutMs?: number, headers?: Record<string, string>}} [options] Per-request overrides.
-   * @returns {Promise<{endpoint: string, status: number, headers: object, body: string}>} Tally HTTP response.
+   * @param {{timeoutMs?: number, headers?: Record<string, string>, responseType?: "text"|"buffer"}} [options] Per-request overrides.
+   * @returns {Promise<{endpoint: string, status: number, headers: object, body: string|Buffer}>} Tally HTTP response.
    */
   async function postXml(tally, xml, options = {}) {
     if (typeof xml !== "string" || !xml.trim()) throw new Error("Tally XML request cannot be empty.");
@@ -72,7 +72,7 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
           endpoint: url.toString(),
           status: response.statusCode || 0,
           headers: response.headers,
-          body: Buffer.concat(chunks).toString("utf8"),
+          body: options.responseType === "buffer" ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8"),
         }));
       });
 

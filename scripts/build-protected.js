@@ -161,7 +161,7 @@ function publishSetup() {
   if (!fs.existsSync(stagedInstaller)) throw new Error("Protected setup executable was not created.");
   fs.mkdirSync(releaseDir, { recursive: true });
   fs.copyFileSync(stagedInstaller, finalInstaller);
-  console.log(`Protected setup executable: ${path.relative(projectRoot, finalInstaller)}`);
+  console.info(`Protected setup executable: ${path.relative(projectRoot, finalInstaller)}`);
 }
 
 function listFiles(directory) {

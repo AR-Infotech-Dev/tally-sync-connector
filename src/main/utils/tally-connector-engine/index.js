@@ -1,8 +1,10 @@
 import { createTallyHttpTransport } from "./tallyHttpTransport.js";
-import { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildSalesOrderXml, escapeXml, parseCompanyList, parseImportResponse } from "./xml.js";
+import { buildSalesInvoicePdfRequest } from "./salesInvoicePdf.js";
+import { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml, buildVoucherLookupRequest, escapeXml, parseCompanyList, parseImportResponse, parseVoucherNumber } from "./xml.js";
 
 export { createTallyHttpTransport } from "./tallyHttpTransport.js";
-export { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildSalesOrderXml, escapeXml, parseCompanyList, parseImportResponse } from "./xml.js";
+export { buildSalesInvoicePdfRequest } from "./salesInvoicePdf.js";
+export { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml, buildVoucherLookupRequest, escapeXml, parseCompanyList, parseImportResponse, parseVoucherNumber } from "./xml.js";
 
 /**
  * Creates an isolated Tally engine instance with its own plugin registry.
@@ -97,6 +99,19 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
     return { ok: response.status >= 200 && response.status < 300, endpoint: response.endpoint, httpStatus: response.status, raw: response.body };
   }
 
+  /** Reads the Tally-assigned voucher number by the LASTVCHID from an import response. */
+  async function getVoucherById(tally, { companyName, voucherId } = {}, options) {
+    const request = buildVoucherLookupRequest({ companyName, voucherId });
+    const response = await transport.postXml(tally, request, options);
+    return {
+      ok: response.status >= 200 && response.status < 300,
+      endpoint: response.endpoint,
+      httpStatus: response.status,
+      voucherNumber: parseVoucherNumber(response.body),
+      raw: response.body,
+    };
+  }
+
   /**
    * Runs one registered plugin operation from XML construction through Tally
    * transport and response parsing.
@@ -136,6 +151,8 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
     testConnection,
     getCompanies: testConnection,
     exportCollection,
+    getVoucherById,
+    buildSalesInvoicePdfRequest,
     sendXml,
     importXml: sendXml,
     executePlugin,

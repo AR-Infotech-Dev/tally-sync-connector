@@ -49,6 +49,25 @@ export function buildCollectionRequest({ collectionName, objectType, fetchFields
   ].join("");
 }
 
+/** Builds an Object export that reads the Tally-assigned number for a voucher Master ID. */
+export function buildVoucherLookupRequest({ companyName, voucherId } = {}) {
+  if (!companyName || !String(companyName).trim()) throw new TypeError("A Tally company name is required to read a voucher.");
+  if (!/^\d+$/.test(String(voucherId ?? ""))) throw new TypeError("A numeric Tally voucher ID is required to read a voucher.");
+  return [
+    "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Object</TYPE><SUBTYPE>Voucher</SUBTYPE>",
+    `<ID TYPE="Name">ID:${escapeXml(voucherId)}</ID></HEADER>`,
+    "<BODY><DESC><STATICVARIABLES>",
+    `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT><SVViewName>Accounting Voucher View</SVViewName>`,
+    "</STATICVARIABLES><FETCHLIST><FETCH>VoucherNumber</FETCH></FETCHLIST></DESC></BODY></ENVELOPE>",
+  ].join("");
+}
+
+/** Extracts the actual voucher number from a Tally Object export response. */
+export function parseVoucherNumber(xml) {
+  const match = String(xml || "").match(/<VOUCHERNUMBER\b[^>]*>([\s\S]*?)<\/VOUCHERNUMBER>/i);
+  return match ? match[1].replace(/<[^>]*>/g, "").trim() : "";
+}
+
 /**
  * Wraps TALLYMESSAGE XML fragments in the standard Tally Import Data envelope.
  * Each message must already be a complete XML fragment, usually a TALLYMESSAGE
@@ -71,6 +90,19 @@ export function buildImportEnvelope({ companyName, messages = [] } = {}) {
   ].join("");
 }
 
+/** Builds a Tally All Masters import for creating ledger masters. */
+export function buildLedgerMasterImport({ companyName, ledgers = [] } = {}) {
+  if (!Array.isArray(ledgers) || ledgers.length === 0) {
+    throw new TypeError("At least one ledger master is required.");
+  }
+  const messages = ledgers.map(({ name, parent, billWise = false }) => {
+    if (!name || !parent) throw new TypeError("Each ledger master requires a name and Tally parent group.");
+    return `<TALLYMESSAGE xmlns:UDF="TallyUDF"><LEDGER Action="Create"><NAME>${escapeXml(name)}</NAME><PARENT>${escapeXml(parent)}</PARENT>${billWise ? "<ISBILLWISEON>Yes</ISBILLWISEON>" : ""}</LEDGER></TALLYMESSAGE>`;
+  }).join("");
+  const company = companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : "";
+  return `<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>All Masters</REPORTNAME><STATICVARIABLES>${company}</STATICVARIABLES></REQUESTDESC><REQUESTDATA>${messages}</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
+}
+
 /** Converts supported CRM date formats to Tally's required YYYYMMDD format. */
 function toTallyDate(value) {
   const input = String(value || "").trim();
@@ -84,7 +116,7 @@ function toTallyDate(value) {
     [, day, month, year] = match;
     if (year.length === 2) year = `20${year}`;
   } else {
-    throw new TypeError("Sales order date is required. Use YYYY-MM-DD or DD-MM-YYYY; Tally XML will receive YYYYMMDD.");
+    throw new TypeError("Voucher date is required. Use YYYY-MM-DD or DD-MM-YYYY; Tally XML will receive YYYYMMDD.");
   }
 
   const yyyy = Number(year);
@@ -92,7 +124,7 @@ function toTallyDate(value) {
   const dd = Number(day);
   const parsed = new Date(Date.UTC(yyyy, mm - 1, dd));
   if (parsed.getUTCFullYear() !== yyyy || parsed.getUTCMonth() !== mm - 1 || parsed.getUTCDate() !== dd) {
-    throw new TypeError(`Invalid sales order date '${input}'. Use a real date in YYYY-MM-DD or DD-MM-YYYY format.`);
+    throw new TypeError(`Invalid voucher date '${input}'. Use a real date in YYYY-MM-DD or DD-MM-YYYY format.`);
   }
   return `${String(yyyy).padStart(4, "0")}${String(mm).padStart(2, "0")}${String(dd).padStart(2, "0")}`;
 }
@@ -169,6 +201,130 @@ export function buildSalesOrderXml({ companyName, order = {} } = {}) {
   return buildImportEnvelope({ companyName: company, messages: [voucher] });
 }
 
+/** Builds an accounting Receipt Voucher from the Connector's canonical JSON shape. */
+export function buildReceiptVoucherXml({ companyName, receipt = {} } = {}) {
+  const header = receipt.header || receipt;
+  const date = toTallyDate(header.date || header.voucher_date);
+  const voucherType = header.voucher_type || "Receipt";
+  const voucherNo = header.voucher_number || header.reference || "";
+  const party = header.party?.ledger_name || header.party_ledger;
+  const paymentLedger = header.payment?.ledger_name || header.payment_ledger;
+  const amount = Math.abs(Number(header.amount));
+  if (!party) throw new TypeError("Receipt voucher requires party.ledger_name.");
+  if (!paymentLedger) throw new TypeError("Receipt voucher requires payment.ledger_name (Cash or Bank ledger).");
+  if (!Number.isFinite(amount) || amount <= 0) throw new TypeError("Receipt voucher amount must be greater than zero.");
+
+  const company = companyName || receipt.destination?.company || receipt.destination?.company_name;
+  const billReference = header.bill_reference;
+  const billType = header.bill_type || (billReference ? "Agst Ref" : "On Account");
+  const billAllocation = billReference
+    ? `<BILLALLOCATIONS.LIST><NAME>${escapeXml(billReference)}</NAME><BILLTYPE>${escapeXml(billType)}</BILLTYPE><AMOUNT>${amount}</AMOUNT></BILLALLOCATIONS.LIST>`
+    : "";
+  const partyEntry = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${escapeXml(party)}</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><ISPARTYLEDGER>Yes</ISPARTYLEDGER><AMOUNT>${amount}</AMOUNT>${billAllocation}</ALLLEDGERENTRIES.LIST>`;
+  const paymentEntry = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${escapeXml(paymentLedger)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><ISPARTYLEDGER>No</ISPARTYLEDGER><AMOUNT>-${amount}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+  const customFields = header.custom_fields || {};
+  if (typeof customFields !== "object" || Array.isArray(customFields)) throw new TypeError("custom_fields must be a JSON object.");
+  const customXml = Object.entries(customFields).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(name) || value === null || typeof value === "object") {
+      throw new TypeError(`Unsupported custom field '${name}'. Use a Tally UDF field name and a scalar value.`);
+    }
+    return `<UDF:${name}>${escapeXml(value)}</UDF:${name}>`;
+  }).join("");
+  const voucher = `<TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create" OBJVIEW="Accounting Voucher View"><DATE>${date}</DATE><VCHSTATUSDATE>${date}</VCHSTATUSDATE><VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME><VOUCHERNUMBER>${escapeXml(voucherNo)}</VOUCHERNUMBER><PARTYLEDGERNAME>${escapeXml(party)}</PARTYLEDGERNAME><ISINVOICE>No</ISINVOICE><PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW><EFFECTIVEDATE>${date}</EFFECTIVEDATE>${paymentEntry}${partyEntry}${customXml}</VOUCHER></TALLYMESSAGE>`;
+  return buildImportEnvelope({ companyName: company, messages: [voucher] });
+}
+
+/** Builds a Purchase Order inventory voucher from the canonical purchase shape. */
+export function buildPurchaseOrderXml({ companyName, order = {} } = {}) {
+  return buildPurchaseInventoryVoucherXml({ companyName, data: order, defaultType: "Purchase Order", includeAccounting: false });
+}
+
+/** Builds a Purchase invoice voucher from the canonical purchase shape. */
+export function buildPurchaseVoucherXml({ companyName, purchase = {} } = {}) {
+  return buildPurchaseInventoryVoucherXml({ companyName, data: purchase, defaultType: "Purchase", includeAccounting: true });
+}
+
+function buildPurchaseInventoryVoucherXml({ companyName, data, defaultType, includeAccounting }) {
+  const header = data.header || data;
+  const items = header.items || header.line_items || header.lineItems;
+  if (!Array.isArray(items) || !items.length) throw new TypeError(`${defaultType} must include a non-empty items array.`);
+  const date = toTallyDate(header.date || header.voucher_date || header.order_date);
+  const party = header.party?.ledger_name || header.party_ledger || header.supplier_ledger || header.supplier_name || header.party_ledger_entry?.ledger;
+  if (!party) throw new TypeError(`${defaultType} requires party.ledger_name or supplier_ledger.`);
+  const voucherType = header.voucher_type || defaultType;
+  const voucherNo = header.voucher_number || header.reference || "";
+  const orderNo = header.order_number || header.purchase_order_number || "";
+  const supplierInvoiceNo = header.supplier_invoice_number || header.supplier_invoice_no || (includeAccounting ? header.reference : "");
+  const supplierInvoiceDate = header.supplier_invoice_date || header.supplier_invoice_date_of_invoice;
+  const supplierInvoiceDateXml = includeAccounting && supplierInvoiceDate ? toTallyDate(supplierInvoiceDate) : "";
+  const company = companyName || data.destination?.company || data.destination?.company_name || header.company?.name;
+  const entries = items.map((item) => {
+    const name = item.stock_item || item.item_name || item.name;
+    const quantity = Number(item.quantity ?? item.qty);
+    const rate = Number(item.rate ?? item.unit_rate);
+    const amount = Number(item.amount ?? quantity * rate);
+    if (!name || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(rate) || !Number.isFinite(amount)) {
+      throw new TypeError(`Each ${defaultType} item requires stock_item, positive quantity, and rate.`);
+    }
+    const unit = item.unit || "";
+    const signedAmount = Math.abs(amount);
+    const purchaseLedger = item.purchase_ledger || header.purchase_ledger;
+    const accounting = includeAccounting && purchaseLedger
+      ? `<ACCOUNTINGALLOCATIONS.LIST><LEDGERNAME>${escapeXml(purchaseLedger)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-${signedAmount}</AMOUNT></ACCOUNTINGALLOCATIONS.LIST>` : "";
+    const batch = item.batch || {};
+    const batchName = batch.name || item.batch_name;
+    const godownName = batch.godown || item.godown;
+    const batchXml = batchName || godownName
+      ? `<BATCHALLOCATIONS.LIST>${batch.manufactured_on ? `<MFDON>${toTallyDate(batch.manufactured_on)}</MFDON>` : ""}${godownName ? `<GODOWNNAME>${escapeXml(godownName)}</GODOWNNAME>` : ""}${batchName ? `<BATCHNAME>${escapeXml(batchName)}</BATCHNAME>` : ""}${godownName ? `<DESTINATIONGODOWNNAME>${escapeXml(godownName)}</DESTINATIONGODOWNNAME>` : ""}<AMOUNT>-${signedAmount}</AMOUNT><ACTUALQTY> ${quantity}${unit ? ` ${escapeXml(unit)}` : ""}</ACTUALQTY><BILLEDQTY> ${quantity}${unit ? ` ${escapeXml(unit)}` : ""}</BILLEDQTY>${batch.expiry_date ? `<EXPIRYPERIOD>${escapeXml(batch.expiry_date)}</EXPIRYPERIOD>` : ""}</BATCHALLOCATIONS.LIST>` : "";
+    const itemOrderNo = item.order_number || item.purchase_order_number || orderNo;
+    return `<ALLINVENTORYENTRIES.LIST><STOCKITEMNAME>${escapeXml(name)}</STOCKITEMNAME>${itemOrderNo ? `<ORDERNO>${escapeXml(itemOrderNo)}</ORDERNO>` : ""}<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE><RATE>${rate}${unit ? `/${escapeXml(unit)}` : ""}</RATE><AMOUNT>-${signedAmount}</AMOUNT><ACTUALQTY> ${quantity}${unit ? ` ${escapeXml(unit)}` : ""}</ACTUALQTY><BILLEDQTY> ${quantity}${unit ? ` ${escapeXml(unit)}` : ""}</BILLEDQTY>${batchXml}${accounting}</ALLINVENTORYENTRIES.LIST>`;
+  }).join("");
+  const total = Math.abs(Number(header.total_amount ?? items.reduce((sum, item) => sum + Math.abs(Number(item.amount ?? Number(item.quantity ?? item.qty) * Number(item.rate ?? item.unit_rate))), 0)));
+  if (!Number.isFinite(total) || total <= 0) throw new TypeError(`${defaultType} total_amount must be greater than zero.`);
+  const partyEntry = header.party_ledger_entry || {};
+  const billReference = partyEntry.bill_reference || header.bill_reference || voucherNo;
+  const billType = partyEntry.bill_type || header.bill_type || "New Ref";
+  const partyAmount = Math.abs(Number(partyEntry.amount ?? total));
+  const partyXml = `<LEDGERENTRIES.LIST><LEDGERNAME>${escapeXml(partyEntry.ledger || party)}</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><ISPARTYLEDGER>Yes</ISPARTYLEDGER><ISLASTDEEMEDPOSITIVE>No</ISLASTDEEMEDPOSITIVE><AMOUNT>${partyAmount}</AMOUNT>${includeAccounting && billReference ? `<BILLALLOCATIONS.LIST><NAME>${escapeXml(billReference)}</NAME><BILLTYPE>${escapeXml(billType)}</BILLTYPE><AMOUNT>${partyAmount}</AMOUNT></BILLALLOCATIONS.LIST>` : ""}</LEDGERENTRIES.LIST>`;
+  const customFields = header.custom_fields || data.custom_fields || {};
+  if (!customFields || typeof customFields !== "object" || Array.isArray(customFields)) throw new TypeError("custom_fields must be a JSON object.");
+  const customXml = Object.entries(customFields).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(name) || value === null || typeof value === "object") throw new TypeError(`Unsupported custom field '${name}'. Use a Tally UDF field name and scalar value.`);
+    return `<UDF:${name}>${escapeXml(value)}</UDF:${name}>`;
+  }).join("");
+  const view = "Invoice Voucher View";
+  const voucher = `<TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create" OBJVIEW="${view}"><DATE>${date}</DATE><VCHSTATUSDATE>${date}</VCHSTATUSDATE><VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME>${voucherNo ? `<VOUCHERNUMBER>${escapeXml(voucherNo)}</VOUCHERNUMBER>` : ""}${orderNo ? `<ORDERNO>${escapeXml(orderNo)}</ORDERNO>` : ""}${supplierInvoiceNo ? `<REFERENCE>${escapeXml(supplierInvoiceNo)}</REFERENCE>` : ""}${supplierInvoiceDateXml ? `<REFERENCEDATE>${supplierInvoiceDateXml}</REFERENCEDATE>` : ""}<PARTYLEDGERNAME>${escapeXml(party)}</PARTYLEDGERNAME><ISINVOICE>${includeAccounting ? "Yes" : "No"}</ISINVOICE><PERSISTEDVIEW>${view}</PERSISTEDVIEW><VCHENTRYMODE>${escapeXml(header.voucher_mode || "Item Invoice")}</VCHENTRYMODE><EFFECTIVEDATE>${date}</EFFECTIVEDATE><DIFFACTUALQTY>No</DIFFACTUALQTY>${entries}${partyXml}${customXml}</VOUCHER></TALLYMESSAGE>`;
+  return buildImportEnvelope({ companyName: company, messages: [voucher] });
+}
+
+/** Builds an accounting Payment Voucher, reversing the Receipt ledger directions. */
+export function buildPaymentVoucherXml({ companyName, payment = {} } = {}) {
+  const header = payment.header || payment;
+  const date = toTallyDate(header.date || header.voucher_date);
+  const voucherType = header.voucher_type || "Payment";
+  const voucherNo = header.voucher_number || header.reference || "";
+  const party = header.party?.ledger_name || header.party_ledger || header.supplier_ledger;
+  const paymentLedger = header.payment?.ledger_name || header.payment_ledger;
+  const amount = Math.abs(Number(header.amount));
+  if (!party) throw new TypeError("Payment voucher requires party.ledger_name (supplier ledger).");
+  if (!paymentLedger) throw new TypeError("Payment voucher requires payment.ledger_name (Cash or Bank ledger).");
+  if (!Number.isFinite(amount) || amount <= 0) throw new TypeError("Payment voucher amount must be greater than zero.");
+  const company = companyName || payment.destination?.company || payment.destination?.company_name;
+  const billReference = header.bill_reference;
+  const billType = header.bill_type || (billReference ? "Agst Ref" : "On Account");
+  const billAllocation = billReference ? `<BILLALLOCATIONS.LIST><NAME>${escapeXml(billReference)}</NAME><BILLTYPE>${escapeXml(billType)}</BILLTYPE><AMOUNT>-${amount}</AMOUNT></BILLALLOCATIONS.LIST>` : "";
+  const partyEntry = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${escapeXml(party)}</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><ISPARTYLEDGER>Yes</ISPARTYLEDGER><AMOUNT>-${amount}</AMOUNT>${billAllocation}</ALLLEDGERENTRIES.LIST>`;
+  const paymentEntry = `<ALLLEDGERENTRIES.LIST><LEDGERNAME>${escapeXml(paymentLedger)}</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><ISPARTYLEDGER>No</ISPARTYLEDGER><AMOUNT>${amount}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+  const customFields = header.custom_fields || {};
+  if (!customFields || typeof customFields !== "object" || Array.isArray(customFields)) throw new TypeError("custom_fields must be a JSON object.");
+  const customXml = Object.entries(customFields).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(name) || value === null || typeof value === "object") throw new TypeError(`Unsupported custom field '${name}'. Use a Tally UDF field name and scalar value.`);
+    return `<UDF:${name}>${escapeXml(value)}</UDF:${name}>`;
+  }).join("");
+  const voucher = `<TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="${escapeXml(voucherType)}" ACTION="Create" OBJVIEW="Accounting Voucher View"><DATE>${date}</DATE><VCHSTATUSDATE>${date}</VCHSTATUSDATE><VOUCHERTYPENAME>${escapeXml(voucherType)}</VOUCHERTYPENAME><VOUCHERNUMBER>${escapeXml(voucherNo)}</VOUCHERNUMBER><PARTYLEDGERNAME>${escapeXml(party)}</PARTYLEDGERNAME><ISINVOICE>No</ISINVOICE><PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW><EFFECTIVEDATE>${date}</EFFECTIVEDATE>${partyEntry}${paymentEntry}${customXml}</VOUCHER></TALLYMESSAGE>`;
+  return buildImportEnvelope({ companyName: company, messages: [voucher] });
+}
+
 /** Decodes XML entities in a captured text value. */
 function decodeXml(value) {
   return String(value || "")
@@ -222,9 +378,21 @@ export function parseImportResponse(xml) {
     altered: value("ALTERED"),
     deleted: value("DELETED"),
     errors: value("ERRORS"),
+    ignored: value("IGNORED"),
+    cancelled: value("CANCELLED"),
+    tallyStatus: tagValue(xml, "STATUS"),
+    voucherNumber: tagValue(xml, "VCHNUMBER"),
     lineErrors,
     lastVoucherId: tagValue(xml, "LASTVCHID"),
     lastMasterId: tagValue(xml, "LASTMID"),
   };
-  return { ok: summary.errors === 0 && lineErrors.length === 0, summary, raw: String(xml || "") };
+  // Tally can return a syntactically valid import summary with zero errors
+  // while creating or altering nothing. Do not report that as a successful
+  // voucher push; callers must treat a no-op import as a failed transaction.
+  const changedRecords = summary.created + summary.altered;
+  return {
+    ok: summary.errors === 0 && lineErrors.length === 0 && changedRecords > 0,
+    summary,
+    raw: String(xml || ""),
+  };
 }

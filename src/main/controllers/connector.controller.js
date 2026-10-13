@@ -4,7 +4,7 @@ import { createConnectorSocket } from "../socket/connectorSocket.js";
 import { registerClientRequest } from "../services/clientRegistration.api.js";
 import { createTallyConnectorEngine } from "../utils/tally-connector-engine/index.js";
 
-export function createConnectorController({ configStore, notify, notifyActivity, logStore, applySystemSettings }) {
+export function createConnectorController({ configStore, notify, notifyActivity, logStore, applySystemSettings, temporaryDirectory }) {
   let socket;
   let currentStatus = makeStatus(CONNECTOR_STATUS.disconnected, "Configure the Server and Tally connections.");
   const report = (state, message, details) => {
@@ -70,7 +70,7 @@ export function createConnectorController({ configStore, notify, notifyActivity,
     report(CONNECTOR_STATUS.connecting, "Opening socket connection to the Server…", {
       registrationState: "pending",
     });
-    socket = createConnectorSocket({ config, notify: report, onActivity: notifyActivity });
+    socket = createConnectorSocket({ config, notify: report, onActivity: notifyActivity, temporaryDirectory });
     return { success: true };
   }
 

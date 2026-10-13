@@ -81,6 +81,7 @@ app.whenReady().then(() => {
       mainWindow?.webContents.send("connector:activity", item);
     },
     logStore,
+    temporaryDirectory: app.getPath("temp"),
     applySystemSettings,
   });
   applySystemSettings(configStore.load());

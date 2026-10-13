@@ -5,6 +5,12 @@ export const CONNECTOR_EVENTS = Object.freeze({
   heartbeatAck: "connector:heartbeat:ack",
   test: "connector:test",
   salesOrderPush: "sales-order:push",
+  salesVoucherPush: "sales-voucher:push",
+  receiptVoucherPush: "receipt-voucher:push",
+  purchaseOrderPush: "purchase-order:push",
+  purchaseVoucherPush: "purchase-voucher:push",
+  paymentVoucherPush: "payment-voucher:push",
+  salesVoucherPdfExport: "sales-voucher:pdf:export",
   salesOrderUpdate: "sales-order:update",
   ack: "connector:ack",
 });
