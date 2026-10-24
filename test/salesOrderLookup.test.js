@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../src/main/utils/tally-connector-engine/salesOrderLookup.js";
-import { buildSalesVoucherSearchRequest } from "../src/main/utils/tally-connector-engine/salesVoucherLookup.js";
+import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../src/main/utils/tally-connector-engine/modules/vouchers/sales-order/sales-order.lookup.js";
+import { buildSalesVoucherSearchRequest } from "../src/main/utils/tally-connector-engine/modules/vouchers/sales/sales.lookup.js";
 
 const lookup = { company: "Sai & Sons", ledger_name: 'A "Traders"', voucher_no: "SO/0031", voucher_date: "2026-10-23" };
 

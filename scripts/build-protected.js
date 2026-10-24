@@ -36,6 +36,7 @@ fs.mkdirSync(path.join(stageDir, "src/preload"), { recursive: true });
 await bundleAndObfuscateMain();
 await bundleAndObfuscatePreload();
 copyProtectedRenderer();
+copyVoucherTemplates();
 writePackagedManifest();
 validateStage();
 runElectronBuilder();
@@ -92,6 +93,16 @@ function copyProtectedRenderer() {
   }
 }
 
+function copyVoucherTemplates() {
+  const relativeRoot = "src/main/utils/tally-connector-engine";
+  const sourceRoot = path.join(projectRoot, relativeRoot);
+  for (const source of listFiles(sourceRoot).filter((file) => file.endsWith(".hbs"))) {
+    const target = path.join(stageDir, relativeRoot, path.relative(sourceRoot, source));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+  }
+}
+
 function writePackagedManifest() {
   const installedElectron = JSON.parse(fs.readFileSync(
     path.join(projectRoot, "node_modules/electron/package.json"),
@@ -108,7 +119,7 @@ function writePackagedManifest() {
     devDependencies: { electron: installedElectron },
     build: {
       ...packageConfig.build,
-      files: ["src/main/index.cjs", "src/preload/index.cjs", "dist/renderer/**/*", "package.json"],
+      files: ["src/main/index.cjs", "src/main/utils/tally-connector-engine/**/*.hbs", "src/preload/index.cjs", "dist/renderer/**/*", "package.json"],
       asar: true,
     },
   };
@@ -126,6 +137,10 @@ function obfuscateFile(sourceFile, outputFile, target) {
 }
 
 function validateStage() {
+  for (const voucher of ["sales-order", "sales", "purchase-order", "purchase", "receipt", "payment"]) {
+    const template = path.join(stageDir, "src/main/utils/tally-connector-engine/modules/vouchers", voucher, `${voucher}.xml.hbs`);
+    if (!fs.existsSync(template)) throw new Error(`Missing packaged voucher template: ${voucher}`);
+  }
   const mainFile = path.join(stageDir, "src/main/index.cjs");
   const preloadFile = path.join(stageDir, "src/preload/index.cjs");
   for (const file of [mainFile, preloadFile]) {

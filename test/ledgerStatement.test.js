@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildLedgerStatementEntriesRequest, normalizeLedgerStatement } from "../src/main/utils/tally-connector-engine/ledgerStatement.js";
+import { buildLedgerStatementEntriesRequest, normalizeLedgerStatement } from "../src/main/utils/tally-connector-engine/modules/ledgers/statement.js";
 import { validateLedgerStatement } from "../../Server/src/modules/ledgers/ledger.validator.js";
 
 const lookup = { company: "Sai Enterprises", ledger_name: "Anjan Ambare", from_date: "2026-10-01", to_date: "2026-10-31" };

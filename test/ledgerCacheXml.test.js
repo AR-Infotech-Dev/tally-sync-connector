@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCacheCompanies, buildCacheLedgersRequest, buildCacheManifestRequest, buildCacheVoucherBatchRequest, parseCacheVoucherTypes, parseCacheVoucherBatch} from '../src/main/utils/tally-connector-engine/ledgerCacheXml.js';
+import {parseCacheCompanies, buildCacheLedgersRequest, buildCacheManifestRequest, buildCacheVoucherBatchRequest, parseCacheVoucherTypes, parseCacheVoucherBatch} from '../src/main/utils/tally-connector-engine/modules/ledgers/ledgerCache.mapper.js';
 
 const wrap = (body) => `<ENVELOPE><BODY><DATA><COLLECTION>${body}</COLLECTION></DATA></BODY></ENVELOPE>`;
 test('Full-history queries start at company books date and refuse an implicit current period', () => {

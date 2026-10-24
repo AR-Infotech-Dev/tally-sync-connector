@@ -1,5 +1,5 @@
-import { createTallyHttpTransport } from "../utils/tally-connector-engine/tallyHttpTransport.js";
-import { buildCacheVoucherTypesRequest, parseCacheVoucherTypes, buildCacheCompaniesRequest, parseCacheCompanies, buildCacheLedgersRequest, parseCacheLedgers, buildCacheManifestRequest, parseCacheManifest, buildCacheVoucherBatchRequest, parseCacheVoucherBatch } from "../utils/tally-connector-engine/ledgerCacheXml.js";
+import { createTallyHttpTransport } from "../utils/tally-connector-engine/transport/httpTransport.js";
+import { buildCacheVoucherTypesRequest, parseCacheVoucherTypes, buildCacheCompaniesRequest, parseCacheCompanies, buildCacheLedgersRequest, parseCacheLedgers, buildCacheManifestRequest, parseCacheManifest, buildCacheVoucherBatchRequest, parseCacheVoucherBatch } from "../utils/tally-connector-engine/modules/ledgers/ledgerCache.mapper.js";
 
 export function createLedgerSyncSource(config, signal) {
   let companies = [];

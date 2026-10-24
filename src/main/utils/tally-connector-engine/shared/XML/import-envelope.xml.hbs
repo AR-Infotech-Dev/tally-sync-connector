@@ -1,0 +1,15 @@
+<ENVELOPE>
+    <HEADER>
+        <TALLYREQUEST>Import Data</TALLYREQUEST>
+    </HEADER>
+
+    <BODY>
+        <IMPORTDATA>
+            <REQUESTDESC>
+                <REPORTNAME>Vouchers</REPORTNAME>
+                <STATICVARIABLES>{{{company}}}</STATICVARIABLES>
+            </REQUESTDESC>
+            <REQUESTDATA>{{#each messages}}{{{this}}}{{/each}}</REQUESTDATA>
+        </IMPORTDATA>
+    </BODY>
+</ENVELOPE>

@@ -3,7 +3,7 @@ import { createLedgerSync } from "../services/ledgerSync.service.js";
 import { CONNECTOR_STATUS, makeStatus } from "../utils/status.js";
 import { createConnectorSocket } from "../socket/connectorSocket.js";
 import { registerClientRequest, activateConnectorRequest } from "../services/clientRegistration.api.js";
-import { createTallyConnectorEngine } from "../utils/tally-connector-engine/index.js";
+import { createTallyConnectorEngine } from "../utils/tally-connector-engine/client.js";
 
 export function createConnectorController({ configStore, notify, notifyActivity, logStore, applySystemSettings, temporaryDirectory, ledgerCache }) {
   let socket;

@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { cacheScope } from "../models/ledgerCache.model.js";
 import { createLedgerSyncSource } from "./ledgerSync.source.js";
-import { manifestKey } from "../utils/tally-connector-engine/ledgerCacheXml.js";
+import { manifestKey } from "../utils/tally-connector-engine/modules/ledgers/ledgerCache.mapper.js";
 import { companyNameKey } from "../utils/companyName.js";
 
 export async function syncLedgerCompany({ cache, scope, identity, source, signal, onProgress = () => {}, batchDelayMs = 250 }) {

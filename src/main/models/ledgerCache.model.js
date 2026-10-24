@@ -45,7 +45,7 @@ export function createLedgerCache(filePath) {
       (SELECT COUNT(*) FROM cache_vouchers WHERE dataset=c.dataset) AS vouchers,
       (SELECT COUNT(*) FROM cache_entries WHERE dataset=c.dataset) AS entries
       FROM cache_companies c WHERE c.scope=? AND c.active=1 ORDER BY c.name`).all(scope).filter((row) => !name || companyNameKey(row.name) === companyNameKey(name));
-    return { companies: rows, cached_ledgers: rows.reduce((sum,row)=>sum+row.ledgers,0), cached_vouchers: rows.reduce((sum,row)=>sum+row.vouchers,0), cached_entries: rows.reduce((sum,row)=>sum+row.entries,0) };
+    return { companies: rows, cached_ledgers: rows.reduce((sum, row) => sum + row.ledgers, 0), cached_vouchers: rows.reduce((sum, row) => sum + row.vouchers, 0), cached_entries: rows.reduce((sum, row) => sum + row.entries, 0) };
   }
   function failScope(scope, error) {
     db.prepare("UPDATE cache_companies SET sync_status='failed',sync_error=?,last_attempt_at=? WHERE scope=?").run(String(error.message || error).slice(0, 500), new Date().toISOString(), scope);
@@ -120,10 +120,12 @@ export function createLedgerCache(filePath) {
       return { date: row.date, voucher_no: row.voucher_no, voucher_type: row.voucher_type, master_id: row.id, narration: row.narration, particulars: JSON.parse(row.particulars), debit: row.debit_cents / 100, credit: row.credit_cents / 100, balance: balance(running) };
     });
     const stale = !connected || cached.sync_status === "failed" || Date.now() - Date.parse(cached.last_synced_at) > 180_000;
-    return { company: cached.name, ledger_name: input.ledger_name, from_date: input.from_date, to_date: input.to_date,
+    return {
+      company: cached.name, ledger_name: input.ledger_name, from_date: input.from_date, to_date: input.to_date,
       opening_balance: balance(opening), entries, total_debit: debit / 100, total_credit: credit / 100, closing_balance: balance(running),
       source: "local_sqlite", last_synced_at: cached.last_synced_at, sync_status: syncing ? "syncing" : stale ? "stale" : "ready", is_stale: stale,
-      ...(cached.sync_error ? { sync_error: cached.sync_error } : {}) };
+      ...(cached.sync_error ? { sync_error: cached.sync_error } : {})
+    };
   }
   return { begin, company, summary, signatures, ledgers, stageLedgers, stageVouchers, publish, fail, failScope, discard, statement, close: () => db.close() };
 }

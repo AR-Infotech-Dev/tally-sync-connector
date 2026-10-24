@@ -1,17 +1,22 @@
 import { io } from "socket.io-client";
 import { fetchLedgerStatement } from "../services/ledgerStatement.service.js";
-import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../utils/tally-connector-engine/salesOrderLookup.js";
+import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../utils/tally-connector-engine/modules/vouchers/sales-order/sales-order.lookup.js";
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { CONNECTOR_EVENTS as EVENTS } from "./events.js";
-import { fetchSalesOrderRequest } from "../services/salesOrder.api.js";
-import { fetchSalesPdfJob, updateSalesVoucherPdfStatus, uploadSalesVoucherPdf } from "../services/salesVoucherPdf.api.js";
-import { buildSalesVoucherSearchRequest, parseSalesVoucherSearchResponse } from "../utils/tally-connector-engine/salesVoucherLookup.js";
-import { buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml } from "../utils/tally-connector-engine/xml.js";
-import { buildSalesInvoicePdfRequest } from "../utils/tally-connector-engine/salesInvoicePdf.js";
-import { createTallyHttpTransport } from "../utils/tally-connector-engine/tallyHttpTransport.js";
-import { createTallyConnectorEngine } from "../utils/tally-connector-engine/index.js";
+import { fetchSalesOrderRequest } from "../modules/vouchers/sales-order/services/sales-order.api.js";
+import { fetchSalesVoucherRequest } from "../modules/vouchers/sales/services/sales.api.js";
+import { fetchPurchaseOrderRequest } from "../modules/vouchers/purchase-order/services/purchase-order.api.js";
+import { fetchPurchaseVoucherRequest } from "../modules/vouchers/purchase/services/purchase.api.js";
+import { fetchReceiptVoucherRequest } from "../modules/vouchers/receipt/services/receipt.api.js";
+import { fetchPaymentVoucherRequest } from "../modules/vouchers/payment/services/payment.api.js";
+import { fetchSalesPdfJob, updateSalesVoucherPdfStatus, uploadSalesVoucherPdf } from "../modules/vouchers/sales/services/salesPdf.api.js";
+import { buildSalesVoucherSearchRequest, parseSalesVoucherSearchResponse } from "../utils/tally-connector-engine/modules/vouchers/sales/sales.lookup.js";
+import { buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml, buildSalesVoucherXml } from "../utils/tally-connector-engine/xml.js";
+import { buildSalesInvoicePdfRequest } from "../utils/tally-connector-engine/modules/vouchers/sales/sales.pdf.js";
+import { createTallyHttpTransport } from "../utils/tally-connector-engine/transport/httpTransport.js";
+import { createTallyConnectorEngine } from "../utils/tally-connector-engine/client.js";
 
 export function createConnectorSocket({ config, notify, onActivity, temporaryDirectory, ledgerSync }) {
   let heartbeatTimer;
@@ -19,6 +24,11 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
   const activeSalesOrders = new Set();
   const activeSalesPdfExports = new Set();
   const transactionTypesByRequest = new Map();
+  const voucherRequestServices = {
+    sales_order: fetchSalesOrderRequest, sales_voucher: fetchSalesVoucherRequest,
+    receipt_voucher: fetchReceiptVoucherRequest, payment_voucher: fetchPaymentVoucherRequest,
+    purchase_order: fetchPurchaseOrderRequest, purchase_voucher: fetchPurchaseVoucherRequest,
+  };
   const socket = io(config.serverUrl, {
     // Keep polling as a fallback when a proxy or customer network cannot
     // establish a WebSocket upgrade; Socket.IO will upgrade when available.
@@ -82,6 +92,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
   }
 
   function summarizeTallyFailure(result) {
+    if (result.summary?.exceptions > 0) return `Tally held ${result.summary.exceptions} voucher(s) in Import Exceptions. Created=${result.summary.created}, altered=${result.summary.altered}. ${result.summary.lineErrors?.join("; ") || "Open the affected Purchase/Sales Order in Tally Import Exceptions for its exact validation reason. Do not resend it until the held entry is reviewed."}`;
     if (result.summary && result.summary.errors === 0 && result.summary.created + result.summary.altered === 0) {
       const { ignored = 0, cancelled = 0, tallyStatus, voucherNumber } = result.summary;
       const responseExcerpt = String(result.raw || "")
@@ -114,7 +125,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       if (result.ok) return result;
 
       const missingNames = findMissingLedgers(result.summary?.lineErrors);
-      if (!missingNames.length) throw new Error(summarizeTallyFailure(result));
+      if (!missingNames.length) throw Object.assign(new Error(summarizeTallyFailure(result)), { tallyResult: result.summary });
       const ledgersToCreate = missingNames.map((name) => candidates.get(name.toLocaleLowerCase()));
       const unresolved = missingNames.filter((_name, index) => !ledgersToCreate[index]);
       if (unresolved.length) {
@@ -210,6 +221,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
   socket.io.on("reconnect_error", (error) => {
     recordConnectionActivity("failed", `Socket reconnect failed: ${error.message}`);
   });
+
   socket.on(EVENTS.registered, (result = {}) => notify("registered", "Connector registration confirmed by the Server.", {
     socketConnected: socket.connected,
     registrationState: "registered",
@@ -226,7 +238,14 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     socket.emit(EVENTS.ack, { event: EVENTS.test, received: true, at: new Date().toISOString() });
   });
   function acknowledgeTransactionSignal(signal, transactionType) {
-    const label = ({ receipt_voucher: "Receipt Voucher", sales_voucher: "Sales Voucher", purchase_order: "Purchase Order", purchase_voucher: "Purchase Voucher", payment_voucher: "Payment Voucher" })[transactionType] || "Sales Order";
+    const label = ({
+      receipt_voucher: "Receipt Voucher",
+      sales_voucher: "Sales Voucher",
+      purchase_order: "Purchase Order",
+      purchase_voucher: "Purchase Voucher",
+      payment_voucher: "Payment Voucher"
+    })[transactionType] || "Sales Order";
+
     recordConnectionActivity("info", `${label} push signal received${signal.request_id ? ` for ${signal.request_id}` : " without a request ID"}.`);
     if (signal.request_id) {
       transactionTypesByRequest.set(signal.request_id, transactionType);
@@ -239,6 +258,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       at: new Date().toISOString(),
     });
   }
+
   socket.on(EVENTS.salesOrderPush, (signal = {}) => acknowledgeTransactionSignal(signal, "sales_order"));
   socket.on(EVENTS.salesOrderFetch, (signal = {}) => {
     if (typeof signal.request_id === "string") void processSalesOrderLookup(signal.request_id);
@@ -261,6 +281,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     socket.emit(EVENTS.ack, { event: EVENTS.salesVoucherPdfExport, request_id: requestId, received: true, at: new Date().toISOString() });
     void processSalesVoucherPdf(requestId);
   });
+
   socket.on(EVENTS.heartbeatAck, () => {
     const lastHeartbeatAt = new Date().toISOString();
     notify("registered", "Connector is registered. Server heartbeat acknowledged.", {
@@ -286,7 +307,9 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     };
     try {
       update("fetching", `Fetching ${transactionLabel} from Server…`);
-      const request = await fetchSalesOrderRequest({ config, requestId, transactionType });
+      const fetchRequest = voucherRequestServices[transactionType];
+      if (!fetchRequest) throw new Error(`Unsupported voucher transaction type: ${transactionType}`);
+      const request = await fetchRequest({ config, requestId });
       const voucherData = isReceiptVoucher ? request.receipt
         : isPaymentVoucher ? request.payment
           : isPurchaseOrder ? request.purchase_order
@@ -299,7 +322,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
         : isPaymentVoucher ? buildPaymentVoucherXml({ companyName, payment: voucherData })
           : isPurchaseOrder ? buildPurchaseOrderXml({ companyName, order: voucherData })
             : isPurchaseVoucher ? buildPurchaseVoucherXml({ companyName, purchase: voucherData })
-              : buildSalesOrderXml({ companyName, order: voucherData });
+              : transactionType === "sales_order" ? buildSalesOrderXml({ companyName, order: voucherData, orderVoucher: true }) : buildSalesVoucherXml({ companyName, sales: voucherData });
       console.info(`Built Tally XML for ${transactionLabel.toLowerCase()} ${voucherData.voucher_number || "(no number)"}:\n${xml}`);
       update("pushing", `Sending ${voucherData.voucher_type || transactionLabel} voucher ${voucherData.voucher_number || "(no number)"} dated ${voucherData.date || "(no date)"} to Tally at ${config.tallyUrl}…`, { transaction_type: transactionType });
       const engine = createTallyConnectorEngine();
@@ -350,7 +373,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       });
     } catch (error) {
       console.error(error);
-      update("failed", error.message, { error: error.message });
+      update("failed", error.message, { error: error.message, ...(error.tallyResult ? { tally_result: error.tallyResult } : {}) });
     } finally {
       activeSalesOrders.delete(requestId);
     }
@@ -380,7 +403,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     const update = (status, extra = {}) => socket.emit(EVENTS.salesOrderUpdate, { request_id: requestId, transaction_type: transactionType, status, ...extra });
     try {
       update("fetching");
-      const request = await fetchSalesOrderRequest({ config, requestId, transactionType: "sales_order" });
+      const request = await fetchSalesOrderRequest({ config, requestId });
       if (!["sales_order_lookup", "sales_voucher_lookup"].includes(request.transaction_type) || !request.lookup) throw new Error("Invalid voucher lookup job.");
       transactionType = request.transaction_type;
       const isSales = transactionType === "sales_voucher_lookup";
@@ -412,7 +435,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       updateActivity("fetching", "Fetching the succeeded Sales Voucher and its Tally voucher ID from Server…");
       await updateSalesVoucherPdfStatus({ config, requestId, status: "generating" });
       const job = await fetchSalesPdfJob({ config, requestId });
-      const request = job.lookup ? null : await fetchSalesOrderRequest({ config, requestId, transactionType: "sales_voucher" });
+      const request = job.lookup ? null : await fetchSalesVoucherRequest({ config, requestId });
       // Direct lookup always uses the caller's company, never the Connector default.
       const companyName = job.lookup?.company || config.tallyCompany || request?.destination?.company || request?.destination?.company_name;
       let voucherId = request?.tally_result?.lastVoucherId;
@@ -481,7 +504,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       }
     } finally {
       activeSalesPdfExports.delete(requestId);
-      if (outputPath) await rm(outputPath, { force: true }).catch(() => {});
+      if (outputPath) await rm(outputPath, { force: true }).catch(() => { });
     }
   }
 

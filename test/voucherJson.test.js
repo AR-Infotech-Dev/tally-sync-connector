@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseVoucherJson } from "../src/main/utils/tally-connector-engine/voucherJson.js";
+import { parseVoucherJson } from "../src/main/utils/tally-connector-engine/shared/parsers/voucherJson.js";
 
 test("Voucher JSON preserves allocations, repeated entries, attributes and entity text", () => {
   const result = parseVoucherJson(`<ENVELOPE><VOUCHER VCHTYPE="Sales New"><VOUCHERNUMBER>0044</VOUCHERNUMBER><PARTYLEDGERNAME>A &amp; B</PARTYLEDGERNAME><NARRATION><![CDATA[Note <ready>]]></NARRATION><ALLINVENTORYENTRIES.LIST><STOCKITEMNAME>Item A</STOCKITEMNAME><AMOUNT>250.00</AMOUNT><BATCHALLOCATIONS.LIST><BATCHNAME>Main</BATCHNAME></BATCHALLOCATIONS.LIST></ALLINVENTORYENTRIES.LIST><ALLINVENTORYENTRIES.LIST><STOCKITEMNAME>Item B</STOCKITEMNAME></ALLINVENTORYENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Sales</LEDGERNAME></ALLLEDGERENTRIES.LIST><EMPTY/></VOUCHER></ENVELOPE>`);
