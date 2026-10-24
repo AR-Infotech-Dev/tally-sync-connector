@@ -1,8 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("connector", {
+  activateConnector: (payload) => ipcRenderer.invoke("client:activate", payload),
   loadConfig: () => ipcRenderer.invoke("config:load"),
   getStatus: () => ipcRenderer.invoke("connector:status:get"),
+  getLedgerSyncStatus: () => ipcRenderer.invoke("ledger-sync:status:get"),
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
   connect: () => ipcRenderer.invoke("connector:connect"),
   registerClient: (payload) => ipcRenderer.invoke("client:register", payload),

@@ -29,6 +29,7 @@ export function useSettingsModule({ config, onConnect, onSaved }) {
   const testTally = async () => {
     setTestingTally(true); setFeedback(null);
     try {
+      await save();
       const result = await testTallyEndpoint();
       if (!result.ok) throw new Error(`Tally returned HTTP ${result.httpStatus || "error"}.`);
       const companies = result.companies?.map((item) => item.name).filter(Boolean) || [];

@@ -5,6 +5,7 @@ import { registerIpcRoutes } from "./ipc/routes.js";
 import { createConnectorController } from "./controllers/connector.controller.js";
 import { createConfigStore } from "./utils/configStore.js";
 import { createActivityLogStore } from "./utils/activityLogStore.js";
+import { createLedgerCache } from "./models/ledgerCache.model.js";
 
 // Keep development paths relative to this source file. In the packaged app,
 // use Electron's app root so bundled main code still finds preload and renderer.
@@ -16,6 +17,9 @@ let connectorController;
 let connectorTray;
 let isQuitting = false;
 let configStore;
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+app.on("second-instance", () => { if (app.isReady()) openWindow(); });
 
 function openWindow() {
   if (!mainWindow) return createWindow();
@@ -69,6 +73,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (!hasInstanceLock) return;
   const userDataPath = app.getPath("userData");
   configStore = createConfigStore(userDataPath, safeStorage);
   const logStore = createActivityLogStore(userDataPath);
@@ -81,6 +86,7 @@ app.whenReady().then(() => {
       mainWindow?.webContents.send("connector:activity", item);
     },
     logStore,
+    ledgerCache: createLedgerCache(path.join(userDataPath, "ledger-cache.sqlite")),
     temporaryDirectory: app.getPath("temp"),
     applySystemSettings,
   });

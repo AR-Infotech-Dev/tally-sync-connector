@@ -2,6 +2,16 @@ function connectorHeaders(config) {
   return { "X-Client-ID": config.clientId, "X-Connector-Key": config.connectorKey };
 }
 
+export async function fetchSalesPdfJob({ config, requestId }) {
+  const response = await fetch(`${config.serverUrl}/api/v1/sales/${encodeURIComponent(requestId)}/pdf/connector`, {
+    headers: connectorHeaders(config),
+    signal: AbortSignal.timeout((Number(config.requestTimeoutSeconds) || 30) * 1000),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.success === false) throw new Error(result.message || `PDF job fetch returned HTTP ${response.status}.`);
+  return result.data || result;
+}
+
 /** Updates the PDF job state so CRM polling can distinguish work from failure. */
 export async function updateSalesVoucherPdfStatus({ config, requestId, status, error }) {
   const response = await fetch(`${config.serverUrl}/api/v1/sales/${encodeURIComponent(requestId)}/pdf/connector/status`, {

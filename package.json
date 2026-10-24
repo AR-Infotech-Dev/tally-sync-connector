@@ -1,6 +1,6 @@
 {
   "name": "tally-sync-connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Flowups Tally Sync Connector desktop application",
   "author": "AR Infotech",
@@ -15,6 +15,7 @@
     "start": "npm run dev"
   },
   "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "socket.io-client": "^4.8.3"

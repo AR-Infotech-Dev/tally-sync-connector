@@ -7,7 +7,7 @@ export default function ClientRegistrationForm({ serverUrl, onServerUrlChange, o
     <form className="config-form" onSubmit={submit} noValidate>
       <div className="form-intro">
         <h2>Register this Tally client</h2>
-        <p>We will email your CRM API key and Connector credentials after registration.</p>
+        <p>Step 1: Create your account. We will email one Connector activation code and a separate application API key. Next, connect Tally and choose your company.</p>
       </div>
       <label>Server URL<input type="url" value={serverUrl} onChange={(event) => onServerUrlChange(event.target.value)} placeholder="https://api.example.com" required /></label>
       <label>Your Name<input name="name" value={formData.name} onChange={update} autoComplete="name" required />{errors.name && <small className="field-error">{errors.name}</small>}</label>

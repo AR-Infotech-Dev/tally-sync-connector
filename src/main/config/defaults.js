@@ -3,6 +3,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   clientId: "",
   connectorId: "",
   connectorKey: "",
+  onboardingPending: false,
   tallyUrl: "http://127.0.0.1:9000",
   tallyCompany: "",
   minimizeToTray: true,

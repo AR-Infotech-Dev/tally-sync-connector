@@ -1,16 +1,19 @@
 import { io } from "socket.io-client";
+import { fetchLedgerStatement } from "../services/ledgerStatement.service.js";
+import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../utils/tally-connector-engine/salesOrderLookup.js";
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { CONNECTOR_EVENTS as EVENTS } from "./events.js";
 import { fetchSalesOrderRequest } from "../services/salesOrder.api.js";
-import { updateSalesVoucherPdfStatus, uploadSalesVoucherPdf } from "../services/salesVoucherPdf.api.js";
+import { fetchSalesPdfJob, updateSalesVoucherPdfStatus, uploadSalesVoucherPdf } from "../services/salesVoucherPdf.api.js";
+import { buildSalesVoucherSearchRequest, parseSalesVoucherSearchResponse } from "../utils/tally-connector-engine/salesVoucherLookup.js";
 import { buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml } from "../utils/tally-connector-engine/xml.js";
 import { buildSalesInvoicePdfRequest } from "../utils/tally-connector-engine/salesInvoicePdf.js";
 import { createTallyHttpTransport } from "../utils/tally-connector-engine/tallyHttpTransport.js";
 import { createTallyConnectorEngine } from "../utils/tally-connector-engine/index.js";
 
-export function createConnectorSocket({ config, notify, onActivity, temporaryDirectory }) {
+export function createConnectorSocket({ config, notify, onActivity, temporaryDirectory, ledgerSync }) {
   let heartbeatTimer;
   let registeredAt = null;
   const activeSalesOrders = new Set();
@@ -237,6 +240,12 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     });
   }
   socket.on(EVENTS.salesOrderPush, (signal = {}) => acknowledgeTransactionSignal(signal, "sales_order"));
+  socket.on(EVENTS.salesOrderFetch, (signal = {}) => {
+    if (typeof signal.request_id === "string") void processSalesOrderLookup(signal.request_id);
+  });
+  socket.on(EVENTS.ledgerStatementFetch, (signal = {}) => {
+    if (typeof signal.request_id === "string") void processLedgerStatement(signal.request_id);
+  });
   socket.on(EVENTS.salesVoucherPush, (signal = {}) => acknowledgeTransactionSignal(signal, "sales_voucher"));
   socket.on(EVENTS.receiptVoucherPush, (signal = {}) => acknowledgeTransactionSignal(signal, "receipt_voucher"));
   socket.on(EVENTS.purchaseOrderPush, (signal = {}) => acknowledgeTransactionSignal(signal, "purchase_order"));
@@ -347,6 +356,53 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     }
   }
 
+  async function processLedgerStatement(requestId) {
+    if (activeSalesOrders.has(requestId)) return;
+    activeSalesOrders.add(requestId);
+    const update = (status, extra = {}) => socket.emit(EVENTS.salesOrderUpdate, { request_id: requestId, transaction_type: "ledger_statement", status, ...extra });
+    try {
+      update("fetching");
+      const statement = await fetchLedgerStatement({ config, requestId, ledgerSync });
+      update("succeeded", { tally_result: { statement } });
+      onActivity?.({ requestId, status: "succeeded", message: "Ledger statement read from local SQLite cache.", at: new Date().toISOString() });
+    } catch (error) {
+      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502 } });
+      onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });
+    } finally {
+      activeSalesOrders.delete(requestId);
+    }
+  }
+
+  async function processSalesOrderLookup(requestId) {
+    if (activeSalesOrders.has(requestId)) return;
+    activeSalesOrders.add(requestId);
+    let transactionType = "sales_order_lookup";
+    const update = (status, extra = {}) => socket.emit(EVENTS.salesOrderUpdate, { request_id: requestId, transaction_type: transactionType, status, ...extra });
+    try {
+      update("fetching");
+      const request = await fetchSalesOrderRequest({ config, requestId, transactionType: "sales_order" });
+      if (!["sales_order_lookup", "sales_voucher_lookup"].includes(request.transaction_type) || !request.lookup) throw new Error("Invalid voucher lookup job.");
+      transactionType = request.transaction_type;
+      const isSales = transactionType === "sales_voucher_lookup";
+      const label = isSales ? "Sales Voucher" : "Sales Order";
+      const transport = createTallyHttpTransport();
+      const options = { timeoutMs: (Number(config.requestTimeoutSeconds) || 30) * 1000 };
+      const tally = { url: config.tallyUrl };
+      const search = await transport.postXml(tally, isSales ? buildSalesVoucherSearchRequest(request.lookup) : buildSalesOrderSearchRequest(request.lookup), options);
+      if (search.status < 200 || search.status >= 300) throw new Error(`Tally lookup returned HTTP ${search.status}.`);
+      const voucherId = parseSalesOrderSearchResponse(search.body, label);
+      const response = await transport.postXml(tally, buildSalesOrderObjectRequest(request.lookup.company, voucherId), options);
+      if (response.status < 200 || response.status >= 300) throw new Error(`Tally voucher export returned HTTP ${response.status}.`);
+      update("succeeded", { tally_result: { voucher: parseSalesOrderObjectResponse(response.body, request.lookup, label) } });
+      onActivity?.({ requestId, status: "succeeded", message: `${label} fetched directly from Tally.`, at: new Date().toISOString() });
+    } catch (error) {
+      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502 } });
+      onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });
+    } finally {
+      activeSalesOrders.delete(requestId);
+    }
+  }
+
   async function processSalesVoucherPdf(requestId) {
     if (activeSalesPdfExports.has(requestId)) return;
     activeSalesPdfExports.add(requestId);
@@ -355,13 +411,22 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     try {
       updateActivity("fetching", "Fetching the succeeded Sales Voucher and its Tally voucher ID from Server…");
       await updateSalesVoucherPdfStatus({ config, requestId, status: "generating" });
-      const request = await fetchSalesOrderRequest({ config, requestId, transactionType: "sales_voucher" });
-      const voucherId = request.tally_result?.lastVoucherId;
+      const job = await fetchSalesPdfJob({ config, requestId });
+      const request = job.lookup ? null : await fetchSalesOrderRequest({ config, requestId, transactionType: "sales_voucher" });
+      // Direct lookup always uses the caller's company, never the Connector default.
+      const companyName = job.lookup?.company || config.tallyCompany || request?.destination?.company || request?.destination?.company_name;
+      let voucherId = request?.tally_result?.lastVoucherId;
+      if (job.lookup) {
+        updateActivity("fetching", "Finding the Sales Voucher directly in Tally by ledger and voucher number…");
+        const lookupTransport = createTallyHttpTransport();
+        const lookupResponse = await lookupTransport.postXml({ url: config.tallyUrl }, buildSalesVoucherSearchRequest(job.lookup), { timeoutMs: Math.max((Number(config.requestTimeoutSeconds) || 30) * 1000, 60_000) });
+        if (lookupResponse.status < 200 || lookupResponse.status >= 300) throw new Error(`Tally voucher lookup returned HTTP ${lookupResponse.status}.`);
+        voucherId = parseSalesVoucherSearchResponse(lookupResponse.body);
+      }
       if (!/^\d+$/.test(String(voucherId ?? "")) || Number(voucherId) < 1) {
         throw new Error("The saved Tally response has no voucher ID. This Sales Voucher must be pushed again with the updated Connector before its PDF can be exported.");
       }
 
-      const companyName = config.tallyCompany || request.destination?.company || request.destination?.company_name;
       if (!companyName) throw new Error("Tally company is missing from Connector settings and the saved Sales Voucher request.");
       const safeId = randomUUID();
       outputPath = path.join(temporaryDirectory || process.cwd(), `flowups-sales-invoice-${safeId}.pdf`);
@@ -402,8 +467,8 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       }
 
       updateActivity("pushing", `Uploading Tally's Standard Sales invoice PDF (${Math.ceil(pdf.length / 1024)} KB) to Server…`);
-      const voucher = request.sales || request.sales_order || {};
-      const filename = `sales-${String(voucher.voucher_number || requestId).replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
+      const voucher = request?.sales || request?.sales_order || {};
+      const filename = `sales-${String(job.lookup?.voucher_no || voucher.voucher_number || requestId).replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
       await uploadSalesVoucherPdf({ config, requestId, pdf, filename });
       updateActivity("succeeded", "Tally Standard Sales invoice PDF uploaded. CRM can download it now.");
     } catch (error) {

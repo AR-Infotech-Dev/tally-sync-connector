@@ -42,6 +42,7 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
    * @returns {Promise<{endpoint: string, status: number, headers: object, body: string|Buffer}>} Tally HTTP response.
    */
   async function postXml(tally, xml, options = {}) {
+    options.signal?.throwIfAborted();
     if (typeof xml !== "string" || !xml.trim()) throw new Error("Tally XML request cannot be empty.");
     const url = resolveEndpoint(tally);
     const timeoutMs = Number(options.timeoutMs || tally.timeoutMs || defaultTimeoutMs);
@@ -77,6 +78,9 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
       });
 
       request.on("timeout", () => request.destroy(new Error(`Tally request timed out after ${timeoutMs}ms.`)));
+      const abort = () => request.destroy(new Error("Tally request cancelled."));
+      options.signal?.addEventListener("abort", abort, { once: true });
+      request.on("close", () => options.signal?.removeEventListener("abort", abort));
       request.on("error", (cause) => {
         const code = cause.code ? ` (${cause.code})` : "";
         reject(new Error(`Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`));

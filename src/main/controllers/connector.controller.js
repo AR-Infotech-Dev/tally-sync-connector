@@ -1,11 +1,13 @@
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { createLedgerSync } from "../services/ledgerSync.service.js";
 import { CONNECTOR_STATUS, makeStatus } from "../utils/status.js";
 import { createConnectorSocket } from "../socket/connectorSocket.js";
-import { registerClientRequest } from "../services/clientRegistration.api.js";
+import { registerClientRequest, activateConnectorRequest } from "../services/clientRegistration.api.js";
 import { createTallyConnectorEngine } from "../utils/tally-connector-engine/index.js";
 
-export function createConnectorController({ configStore, notify, notifyActivity, logStore, applySystemSettings, temporaryDirectory }) {
+export function createConnectorController({ configStore, notify, notifyActivity, logStore, applySystemSettings, temporaryDirectory, ledgerCache }) {
   let socket;
+  const ledgerSync = createLedgerSync({ cache: ledgerCache, onActivity: notifyActivity });
   let currentStatus = makeStatus(CONNECTOR_STATUS.disconnected, "Configure the Server and Tally connections.");
   const report = (state, message, details) => {
     currentStatus = makeStatus(state, message, details);
@@ -17,9 +19,12 @@ export function createConnectorController({ configStore, notify, notifyActivity,
   }
 
   function getStatus() { return currentStatus; }
+  function getLedgerSyncStatus() { return ledgerSync.getStatus(getConfig()); }
 
   function saveConfig(config) {
+    const previous = getConfig();
     const saved = configStore.save(config);
+    if (previous.clientId !== saved.clientId || previous.connectorKey !== saved.connectorKey || previous.serverUrl !== saved.serverUrl) disconnect();
     applySystemSettings?.(saved);
     return saved;
   }
@@ -32,6 +37,14 @@ export function createConnectorController({ configStore, notify, notifyActivity,
   }
 
   function getActivity(options) { return logStore?.list(options) || []; }
+  async function activateConnector({ serverUrl, activationCode }) {
+    const code = String(activationCode || '').trim();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(code)) throw new Error('Paste the complete activation code from your registration email.');
+    const result = await activateConnectorRequest(String(serverUrl || '').trim(), code);
+    if (!result.client_id || !result.connector_id || !result.connector_key) throw new Error('Server returned incomplete activation details. Use manual setup from your email.');
+    disconnect();
+    return saveConfig({ ...getConfig(), serverUrl, clientId: result.client_id, connectorId: result.connector_id, connectorKey: result.connector_key, tallyCompany: '', onboardingPending: true });
+  }
   function clearActivity() { return logStore?.clear() || true; }
   function retrySalesOrder(requestId) {
     if (!socket?.retrySalesOrder) return { success: false, message: "Connect to the Server before retrying this request." };
@@ -70,14 +83,16 @@ export function createConnectorController({ configStore, notify, notifyActivity,
     report(CONNECTOR_STATUS.connecting, "Opening socket connection to the Server…", {
       registrationState: "pending",
     });
-    socket = createConnectorSocket({ config, notify: report, onActivity: notifyActivity, temporaryDirectory });
+    ledgerSync.start(config);
+    socket = createConnectorSocket({ config, notify: report, onActivity: notifyActivity, temporaryDirectory, ledgerSync });
     return { success: true };
   }
 
   function disconnect() {
+    ledgerSync.stop();
     socket?.disconnect();
     socket = undefined;
   }
 
-  return { getConfig, getStatus, saveConfig, registerClient, connect, disconnect, testTallyConnection, getActivity, clearActivity, retrySalesOrder };
+  return { getConfig, getStatus, getLedgerSyncStatus, saveConfig, registerClient, activateConnector, connect, disconnect, testTallyConnection, getActivity, clearActivity, retrySalesOrder };
 }

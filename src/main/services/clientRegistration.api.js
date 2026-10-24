@@ -2,13 +2,23 @@ import http from "node:http";
 import https from "node:https";
 
 export function registerClientRequest(serverUrl, input) {
-  const url = new URL("/api/v1/clients/register", serverUrl);
-  const body = JSON.stringify({
+  return clientRequest(serverUrl, '/api/v1/clients/register', {
     name: input.name,
     company_name: input.companyName,
     email: input.email,
     tally_license_no: input.tallyLicenseNo,
   });
+}
+
+export function activateConnectorRequest(serverUrl, code) {
+  return clientRequest(serverUrl, '/api/v1/clients/activate-connector', { activation_code: code });
+}
+
+function clientRequest(serverUrl, path, payload) {
+  const url = new URL(path, serverUrl);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Enter a valid HTTP or HTTPS Server URL without embedded credentials.');
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error('Use HTTPS for a remote Server. HTTP is allowed only on this computer.');
+  const body = JSON.stringify(payload);
   const transport = url.protocol === "https:" ? https : http;
 
   return new Promise((resolve, reject) => {
@@ -23,7 +33,10 @@ export function registerClientRequest(serverUrl, input) {
     }, (response) => {
       let responseBody = "";
       response.setEncoding("utf8");
-      response.on("data", (chunk) => { responseBody += chunk; });
+      response.on("data", (chunk) => {
+        responseBody += chunk;
+        if (responseBody.length > 65536) request.destroy(new Error('Server returned an oversized setup response.'));
+      });
       response.on("end", () => {
         let data = {};
         try { data = JSON.parse(responseBody); } catch { /* handled as an API error below */ }

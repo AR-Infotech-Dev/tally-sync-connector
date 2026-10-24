@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { loadRecentActivity } from "../services/monitor.service.js";
 import { clearActivityLogs } from "../../logs/services/logs.service.js";
+import { useLedgerSyncStatus } from "./useLedgerSyncStatus.js";
 
 const initialStatus = {
   state: "disconnected",
@@ -13,6 +14,7 @@ const initialStatus = {
 };
 
 export function useMonitorModule() {
+  const ledgerSync = useLedgerSyncStatus();
   const [status, setStatus] = useState(initialStatus);
   const [activity, setActivity] = useState([]);
 
@@ -26,5 +28,5 @@ export function useMonitorModule() {
   }, []);
 
   const clearActivity = async () => { await clearActivityLogs(); setActivity([]); };
-  return { status, setStatus, activity, clearActivity };
+  return { status, setStatus, activity, clearActivity, ledgerSync };
 }

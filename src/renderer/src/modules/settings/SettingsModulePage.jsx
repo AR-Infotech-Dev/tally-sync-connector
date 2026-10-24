@@ -14,7 +14,7 @@ export default function SettingsModulePage({ config, onConnect, onSaved, onBack,
   return <div className="module-page settings-page">
     <div className="page-heading"><div><p className="eyebrow">CONNECTOR CONFIGURATION</p><h1>Settings</h1><p>Manage Server, Tally, background service and log preferences.</p></div><div className="page-heading-actions"><button className="button button-quiet" type="button" onClick={onNewRegistration}>Register another client</button><button className="button button-outline" type="button" onClick={onBack}>Back to Monitor</button></div></div>
     <div className="settings-grid">
-      <SettingsCard title="Server Connection" description="Credentials are stored securely on this computer.">
+      <SettingsCard title="Connector credentials" description="Manual setup: use the Client ID, Connector ID and Connector Key from your email. The application API key belongs in your backend or Postman.">
         <div className="settings-form-grid"><TextField label="Server URL" name="serverUrl" value={form.serverUrl} onChange={setField} placeholder="https://api.example.com"/><TextField label="Client ID" name="clientId" value={form.clientId} onChange={setField} placeholder="Client ID"/><TextField label="Connector ID" name="connectorId" value={form.connectorId} onChange={setField} placeholder="Connector ID"/><TextField label="Connector Key" name="connectorKey" type="password" value={form.connectorKey} onChange={setField} placeholder="Enter connector key"/></div>
         <button className="button button-outline" type="button" onClick={connect} disabled={saving}><Icon name="refresh" size={15}/>{saving ? "Saving…" : "Save & Connect"}</button>
       </SettingsCard>
