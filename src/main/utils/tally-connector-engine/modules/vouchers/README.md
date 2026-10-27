@@ -16,8 +16,12 @@ The existing xml.js and engine index.js exports remain compatible. Socket orches
 
 ## Handlebars XML templates
 
-Each voucher folder contains its .xml.hbs template next to its .xml.js builder. Builders retain validation, amounts and mapping; XML markup lives in the templates. Shared XML fragments (inventory allocations, due dates, bill allocations, UDFs and envelope) also use .xml.hbs files in shared/XML/.
+Each voucher folder contains its .xml.hbs template next to its .xml.js builder. Each voucher has a validator (rules), mapper (amounts/defaults/template context), XML renderer and HBS template. index.js exports the builder and mapper; XML markup lives in templates. Inventory, due dates, bills and UDF XML are inline sections of each voucher template. shared/XML contains only the common import envelope.
 
 shared/template/templateRenderer.js loads and compiles each template once per process. Values passed to templates are already escaped with escapeXml, or are trusted XML rendered from another internal template. Triple-brace placeholders avoid double escaping; never pass raw external data as an XML fragment. The existing API payloads and Tally HTTP posting flow are unchanged.
 
 The protected packaging script copies all .hbs assets into the staged application and includes them in the installer. Restart the Connector after template edits because compiled templates are cached.
+
+## All supported vouchers
+
+Sales Order, Sales, Purchase Order, Purchase, Receipt and Payment all follow the same file structure. Each folder includes README.md and examples/input.json, expected.xml, success-response.xml and error-response.xml. See [MAINTENANCE.md](../../MAINTENANCE.md).

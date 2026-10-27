@@ -4,7 +4,7 @@ import { createLedgerSyncSource } from "./ledgerSync.source.js";
 import { manifestKey } from "../utils/tally-connector-engine/modules/ledgers/ledgerCache.mapper.js";
 import { companyNameKey } from "../utils/companyName.js";
 
-export async function syncLedgerCompany({ cache, scope, identity, source, signal, onProgress = () => {}, batchDelayMs = 250 }) {
+export async function syncLedgerCompany({ cache, scope, identity, source, signal, onProgress = () => { }, batchDelayMs = 250 }) {
   const run = cache.begin(scope, identity);
   try {
     const ledgers = await source.ledgers(identity.name);
@@ -12,11 +12,12 @@ export async function syncLedgerCompany({ cache, scope, identity, source, signal
     signal.throwIfAborted();
     const manifest = await source.manifest(identity.name);
     const previous = cache.signatures(run);
+    const incompleteDetails = cache.incompleteDetails(run);
     const names = new Set(ledgers.map((row) => row.name));
     // Renaming a ledger can change serialized voucher allocation names without
     // changing each voucher's AlterID. Refresh those allocations conservatively.
     const removedOrRenamedLedger = cache.ledgers(run).some((row) => !names.has(row.name));
-    const changed = manifest.filter((row) => removedOrRenamedLedger || previous.get(row.id) !== row.signature);
+    const changed = manifest.filter((row) => removedOrRenamedLedger || incompleteDetails.has(row.id) || previous.get(row.id) !== row.signature);
     cache.stageLedgers(run, ledgers);
     onProgress({ company: identity.name, total: changed.length, completed: 0, phase: "fetching", ledgers: ledgers.length });
     for (let index = 0; index < changed.length; index += 25) {
@@ -47,7 +48,7 @@ export async function syncLedgerCompany({ cache, scope, identity, source, signal
   }
 }
 
-export function createLedgerSync({ cache, onActivity = () => {}, sourceFactory = createLedgerSyncSource, intervalMs = 180_000 }) {
+export function createLedgerSync({ cache, onActivity = () => { }, sourceFactory = createLedgerSyncSource, intervalMs = 180_000 }) {
   let config; let timer; let controller; let running = false; let enabled = false; let revision = 0;
   let progress = { state: "idle", phase: "idle", company: null, completed: 0, total: null, company_index: 0, company_total: 0, error: null, next_sync_at: null };
   async function tick() {
@@ -67,7 +68,8 @@ export function createLedgerSync({ cache, onActivity = () => {}, sourceFactory =
         controller.signal.throwIfAborted();
         progress = { ...progress, phase: "reading", company: identity.name, company_index: selected.indexOf(identity) + 1, company_total: selected.length, total: null, completed: 0 };
         onActivity({ status: "fetching", message: `Syncing local ledger database for ${identity.name}…`, at: new Date().toISOString() });
-        const result = await syncLedgerCompany({ cache, scope: cacheScope(activeConfig), identity, source, signal: controller.signal,
+        const result = await syncLedgerCompany({
+          cache, scope: cacheScope(activeConfig), identity, source, signal: controller.signal,
           onProgress: ({ completed, total, phase, ledgers }) => {
             progress = { ...progress, completed, total, phase, ledgers };
             if (completed === total || completed % 250 === 0) onActivity({ status: "fetching", message: `Local ledger sync: ${identity.name}, ${completed}/${total} changed vouchers saved in staging.`, at: new Date().toISOString() });

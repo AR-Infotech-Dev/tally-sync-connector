@@ -1,0 +1,25 @@
+{
+  "companyName": "Demo Company",
+  "order": {
+    "voucher_type": "Sales Order",
+    "voucher_number": "SO-DEMO-001",
+    "order_number": "SO-DEMO-001",
+    "date": "2026-10-31",
+    "order_due_date": "2026-11-07",
+    "party": {
+      "ledger_name": "Demo Customer"
+    },
+    "items": [
+      {
+        "stock_item": "Demo Item",
+        "quantity": 2,
+        "unit": "Nos",
+        "rate": 100,
+        "amount": 200,
+        "sales_ledger": "Sales"
+      }
+    ],
+    "total_amount": 200
+  },
+  "orderVoucher": true
+}

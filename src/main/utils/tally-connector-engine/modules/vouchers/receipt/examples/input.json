@@ -1,0 +1,17 @@
+{
+  "companyName": "Demo Company",
+  "receipt": {
+    "voucher_type": "Receipt",
+    "voucher_number": "REC-DEMO-001",
+    "date": "2026-10-31",
+    "party": {
+      "ledger_name": "Demo Customer"
+    },
+    "payment": {
+      "ledger_name": "Cash"
+    },
+    "amount": 200,
+    "bill_reference": "SALE-DEMO-001",
+    "bill_type": "Agst Ref"
+  }
+}

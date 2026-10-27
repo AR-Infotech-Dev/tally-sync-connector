@@ -45,8 +45,12 @@ const result = await engine.executePlugin("sales-voucher", "push", {
 });
 ```
 
-XML mapping stays in the plugin; the engine owns local HTTP transport and import-response parsing. The provided CRM sales-order mapping should be implemented as a separate plugin once its field and ledger rules are finalized.
+XML mapping stays in the plugin; the engine owns local HTTP transport and import-response parsing. Built-in voucher builders live in modules/vouchers. Each has its own validator, mapper and XML renderer. Server API services remain outside the reusable engine.
 
 ## Folder architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for implementation locations and compatibility exports. Voucher templates live in modules/vouchers/; shared templates live in shared/XML/.
+
+## Start here for maintenance
+
+Read [MAINTENANCE.md](./MAINTENANCE.md) for the Marathi walkthrough, change-location guide and offline preview commands. Each voucher folder contains a README and dummy input/XML/response examples.

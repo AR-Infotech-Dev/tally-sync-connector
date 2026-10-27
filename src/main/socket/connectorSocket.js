@@ -17,6 +17,8 @@ import { buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml,
 import { buildSalesInvoicePdfRequest } from "../utils/tally-connector-engine/modules/vouchers/sales/sales.pdf.js";
 import { createTallyHttpTransport } from "../utils/tally-connector-engine/transport/httpTransport.js";
 import { createTallyConnectorEngine } from "../utils/tally-connector-engine/client.js";
+import { registerTallyAvailabilityCheck } from "../services/tallyAvailability.service.js";
+import { tallyFailureResult } from "../utils/tallyFailure.js";
 
 export function createConnectorSocket({ config, notify, onActivity, temporaryDirectory, ledgerSync }) {
   let heartbeatTimer;
@@ -38,6 +40,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     reconnectionDelayMax: 15_000,
     timeout: 20_000,
   });
+  registerTallyAvailabilityCheck(socket, config);
   const recordConnectionActivity = (status, message) => onActivity?.({ status, message, at: new Date().toISOString() });
 
   function getLedgerCandidates(voucher, transactionType) {
@@ -249,7 +252,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     recordConnectionActivity("info", `${label} push signal received${signal.request_id ? ` for ${signal.request_id}` : " without a request ID"}.`);
     if (signal.request_id) {
       transactionTypesByRequest.set(signal.request_id, transactionType);
-      void processSalesOrder(signal.request_id, transactionType);
+      void processVoucherRequest(signal.request_id, transactionType);
     }
     socket.emit(EVENTS.ack, {
       event: ({ receipt_voucher: EVENTS.receiptVoucherPush, sales_voucher: EVENTS.salesVoucherPush, purchase_order: EVENTS.purchaseOrderPush, purchase_voucher: EVENTS.purchaseVoucherPush, payment_voucher: EVENTS.paymentVoucherPush })[transactionType] || EVENTS.salesOrderPush,
@@ -293,7 +296,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     });
   });
 
-  async function processSalesOrder(requestId, transactionType = "sales_order") {
+  async function processVoucherRequest(requestId, transactionType = "sales_order") {
     if (activeSalesOrders.has(requestId)) return;
     activeSalesOrders.add(requestId);
     const isReceiptVoucher = transactionType === "receipt_voucher";
@@ -373,7 +376,8 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       });
     } catch (error) {
       console.error(error);
-      update("failed", error.message, { error: error.message, ...(error.tallyResult ? { tally_result: error.tallyResult } : {}) });
+      const failure = tallyFailureResult(error);
+      update("failed", error.message, { error: error.message, ...(failure ? { tally_result: failure } : {}) });
     } finally {
       activeSalesOrders.delete(requestId);
     }
@@ -389,7 +393,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       update("succeeded", { tally_result: { statement } });
       onActivity?.({ requestId, status: "succeeded", message: "Ledger statement read from local SQLite cache.", at: new Date().toISOString() });
     } catch (error) {
-      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502 } });
+      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502, ...tallyFailureResult(error) } });
       onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });
     } finally {
       activeSalesOrders.delete(requestId);
@@ -419,7 +423,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       update("succeeded", { tally_result: { voucher: parseSalesOrderObjectResponse(response.body, request.lookup, label) } });
       onActivity?.({ requestId, status: "succeeded", message: `${label} fetched directly from Tally.`, at: new Date().toISOString() });
     } catch (error) {
-      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502 } });
+      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502, ...tallyFailureResult(error) } });
       onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });
     } finally {
       activeSalesOrders.delete(requestId);
@@ -498,7 +502,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       console.error("Sales Voucher PDF export failed:", error);
       updateActivity("failed", error.message);
       try {
-        await updateSalesVoucherPdfStatus({ config, requestId, status: "failed", error: error.message });
+        await updateSalesVoucherPdfStatus({ config, requestId, status: "failed", error: error.message, errorCode: tallyFailureResult(error)?.error_code });
       } catch (statusError) {
         recordConnectionActivity("failed", `Could not update PDF job failure on Server: ${statusError.message}`);
       }
@@ -520,7 +524,7 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     if (activeSalesOrders.has(requestId)) {
       return { success: false, message: "This transaction is already being processed." };
     }
-    void processSalesOrder(requestId, transactionTypesByRequest.get(requestId) || "sales_order");
+    void processVoucherRequest(requestId, transactionTypesByRequest.get(requestId) || "sales_order");
     return { success: true };
   };
 

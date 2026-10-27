@@ -1,0 +1,17 @@
+{
+  "companyName": "Demo Company",
+  "payment": {
+    "voucher_type": "Payment",
+    "voucher_number": "PAY-DEMO-001",
+    "date": "2026-10-31",
+    "party": {
+      "ledger_name": "Demo Supplier"
+    },
+    "payment": {
+      "ledger_name": "Cash"
+    },
+    "amount": 200,
+    "bill_reference": "PUR-DEMO-001",
+    "bill_type": "Agst Ref"
+  }
+}

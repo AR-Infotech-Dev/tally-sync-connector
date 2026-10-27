@@ -1,0 +1,26 @@
+{
+  "companyName": "Demo Company",
+  "sales": {
+    "voucher_type": "Sales",
+    "voucher_number": "SALE-DEMO-001",
+    "date": "2026-10-31",
+    "party": {
+      "ledger_name": "Demo Customer"
+    },
+    "party_ledger_entry": {
+      "ledger": "Demo Customer",
+      "amount": -200
+    },
+    "items": [
+      {
+        "stock_item": "Demo Item",
+        "quantity": 2,
+        "unit": "Nos",
+        "rate": 100,
+        "amount": 200,
+        "sales_ledger": "Sales"
+      }
+    ],
+    "total_amount": 200
+  }
+}

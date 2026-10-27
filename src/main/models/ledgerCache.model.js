@@ -29,7 +29,14 @@ export function createLedgerCache(filePath) {
   // Upgrade in place; never require deleting the user's synced history.
   const companyColumns = db.prepare("PRAGMA table_info(cache_companies)").all();
   if (!companyColumns.some((column) => column.name === "active")) db.exec("ALTER TABLE cache_companies ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
-  db.exec("PRAGMA user_version=2");
+  for (const [table, column, definition] of [
+    ["cache_vouchers", "details_json", "TEXT"],
+    ["cache_entries", "bill_allocations_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["cache_companies", "company_details_json", "TEXT NOT NULL DEFAULT '{}'"],
+  ]) {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some(item => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("PRAGMA user_version=3");
   // Only unpublished staging rows belong to interrupted local sync attempts.
   db.exec("DELETE FROM cache_entries WHERE dataset LIKE 'stage:%'; DELETE FROM cache_vouchers WHERE dataset LIKE 'stage:%'; DELETE FROM cache_ledgers WHERE dataset LIKE 'stage:%'; DELETE FROM cache_manifest WHERE dataset LIKE 'stage:%';");
 
@@ -57,18 +64,24 @@ export function createLedgerCache(filePath) {
     return { scope, ...identity, dataset, stage };
   }
   function signatures(run) { return new Map(db.prepare("SELECT id,signature FROM cache_vouchers WHERE dataset=?").all(run.dataset).map((row) => [row.id, row.signature])); }
+  function incompleteDetails(run) {
+    // Signature equality does not prove a pre-upgrade row has detailed data.
+    // Exclude non-posting vouchers: they legitimately have no ledger entries.
+    return new Set(db.prepare(`SELECT v.id FROM cache_vouchers v WHERE v.dataset=? AND v.details_json IS NULL
+      AND EXISTS(SELECT 1 FROM cache_entries e WHERE e.dataset=v.dataset AND e.voucher_id=v.id)`).all(run.dataset).map(row => row.id));
+  }
   function ledgers(run) { return db.prepare("SELECT name,master_id,guid,opening_cents FROM cache_ledgers WHERE dataset=? ORDER BY name").all(run.dataset); }
   function stageLedgers(run, rows) {
     const insert = db.prepare("INSERT INTO cache_ledgers VALUES(?,?,?,?,?)");
     transaction(() => { for (const row of rows) insert.run(run.stage, row.name, row.master_id, row.guid, row.opening_cents); });
   }
   function stageVouchers(run, rows) {
-    const voucher = db.prepare("INSERT INTO cache_vouchers VALUES(?,?,?,?,?,?,?,?)");
-    const entry = db.prepare("INSERT INTO cache_entries VALUES(?,?,?,?,?,?)");
+    const voucher = db.prepare("INSERT INTO cache_vouchers(dataset,id,alter_id,signature,date,voucher_no,voucher_type,narration,details_json) VALUES(?,?,?,?,?,?,?,?,?)");
+    const entry = db.prepare("INSERT INTO cache_entries(dataset,voucher_id,ledger_name,debit_cents,credit_cents,particulars,bill_allocations_json) VALUES(?,?,?,?,?,?,?)");
     transaction(() => {
       for (const row of rows) {
-        voucher.run(run.stage, row.id, row.alter_id, row.signature, row.date, row.voucher_no, row.voucher_type, row.narration);
-        for (const allocation of row.entries) entry.run(run.stage, row.id, allocation.ledger_name, allocation.debit_cents, allocation.credit_cents, JSON.stringify(allocation.particulars));
+        voucher.run(run.stage, row.id, row.alter_id, row.signature, row.date, row.voucher_no, row.voucher_type, row.narration, row.details_version ? JSON.stringify({ inventory_entries: row.inventory_entries || [], bank_allocations: row.bank_allocations || [], version: row.details_version }) : null);
+        for (const allocation of row.entries) entry.run(run.stage, row.id, allocation.ledger_name, allocation.debit_cents, allocation.credit_cents, JSON.stringify(allocation.particulars), JSON.stringify(allocation.bill_allocations || []));
       }
     });
   }
@@ -91,13 +104,13 @@ export function createLedgerCache(filePath) {
       // Delete disappeared, cancelled/replaced and changed versions atomically;
       // cascading removes the old ledger allocations before replacement.
       db.prepare("DELETE FROM cache_vouchers WHERE dataset=? AND (id NOT IN (SELECT id FROM cache_manifest WHERE dataset=?) OR id IN (SELECT id FROM cache_vouchers WHERE dataset=?))").run(run.dataset, run.stage, run.stage);
-      db.prepare("INSERT INTO cache_vouchers SELECT ?,id,alter_id,signature,date,voucher_no,voucher_type,narration FROM cache_vouchers WHERE dataset=?").run(run.dataset, run.stage);
-      db.prepare("INSERT INTO cache_entries SELECT ?,voucher_id,ledger_name,debit_cents,credit_cents,particulars FROM cache_entries WHERE dataset=?").run(run.dataset, run.stage);
+      db.prepare("INSERT INTO cache_vouchers(dataset,id,alter_id,signature,date,voucher_no,voucher_type,narration,details_json) SELECT ?,id,alter_id,signature,date,voucher_no,voucher_type,narration,details_json FROM cache_vouchers WHERE dataset=?").run(run.dataset, run.stage);
+      db.prepare("INSERT INTO cache_entries(dataset,voucher_id,ledger_name,debit_cents,credit_cents,particulars,bill_allocations_json) SELECT ?,voucher_id,ledger_name,debit_cents,credit_cents,particulars,bill_allocations_json FROM cache_entries WHERE dataset=?").run(run.dataset, run.stage);
       db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.dataset);
       db.prepare("INSERT INTO cache_ledgers SELECT ?,name,master_id,guid,opening_cents FROM cache_ledgers WHERE dataset=?").run(run.dataset, run.stage);
       const previousNames = db.prepare("SELECT guid,name FROM cache_companies WHERE scope=? AND guid<>?").all(run.scope, run.guid);
       for (const previous of previousNames.filter((row) => companyNameKey(row.name) === companyNameKey(run.name))) db.prepare("UPDATE cache_companies SET active=0 WHERE scope=? AND guid=?").run(run.scope, previous.guid);
-      db.prepare("UPDATE cache_companies SET name=?,last_synced_at=?,sync_status='ready',sync_error=NULL,active=1 WHERE scope=? AND guid=?").run(run.name, now, run.scope, run.guid);
+      db.prepare("UPDATE cache_companies SET name=?,last_synced_at=?,sync_status='ready',sync_error=NULL,active=1,company_details_json=? WHERE scope=? AND guid=?").run(run.name, now, JSON.stringify(run.company_details || {}), run.scope, run.guid);
       db.prepare("DELETE FROM cache_vouchers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_manifest WHERE dataset=?").run(run.stage);
@@ -114,18 +127,18 @@ export function createLedgerCache(filePath) {
     const prior = db.prepare("SELECT COALESCE(SUM(e.debit_cents-e.credit_cents),0) AS movement FROM cache_entries e JOIN cache_vouchers v ON e.dataset=v.dataset AND e.voucher_id=v.id WHERE e.dataset=? AND e.ledger_name=? AND v.date<?").get(cached.dataset, input.ledger_name, input.from_date);
     const opening = ledger.opening_cents + prior.movement;
     let running = opening; let debit = 0; let credit = 0;
-    const rows = db.prepare("SELECT v.*,e.debit_cents,e.credit_cents,e.particulars FROM cache_entries e JOIN cache_vouchers v ON e.dataset=v.dataset AND e.voucher_id=v.id WHERE e.dataset=? AND e.ledger_name=? AND v.date>=? AND v.date<=? AND (e.debit_cents<>0 OR e.credit_cents<>0) ORDER BY v.date,CAST(v.id AS INTEGER)").all(cached.dataset, input.ledger_name, input.from_date, input.to_date);
+    const rows = db.prepare("SELECT v.*,e.debit_cents,e.credit_cents,e.particulars,e.bill_allocations_json FROM cache_entries e JOIN cache_vouchers v ON e.dataset=v.dataset AND e.voucher_id=v.id WHERE e.dataset=? AND e.ledger_name=? AND v.date>=? AND v.date<=? AND (e.debit_cents<>0 OR e.credit_cents<>0) ORDER BY v.date,CAST(v.id AS INTEGER)").all(cached.dataset, input.ledger_name, input.from_date, input.to_date);
     const entries = rows.map((row) => {
       running += row.debit_cents - row.credit_cents; debit += row.debit_cents; credit += row.credit_cents;
-      return { date: row.date, voucher_no: row.voucher_no, voucher_type: row.voucher_type, master_id: row.id, narration: row.narration, particulars: JSON.parse(row.particulars), debit: row.debit_cents / 100, credit: row.credit_cents / 100, balance: balance(running) };
+      return { date: row.date, voucher_no: row.voucher_no, voucher_type: row.voucher_type, master_id: row.id, narration: row.narration, particulars: JSON.parse(row.particulars), inventory_entries: JSON.parse(row.details_json || "{}").inventory_entries || [], ...(JSON.parse(row.details_json || "{}").version >= 2 ? {bank_allocations: JSON.parse(row.details_json).bank_allocations || []} : {}), bill_allocations: JSON.parse(row.bill_allocations_json), debit: row.debit_cents / 100, credit: row.credit_cents / 100, balance: balance(running) };
     });
     const stale = !connected || cached.sync_status === "failed" || Date.now() - Date.parse(cached.last_synced_at) > 180_000;
     return {
-      company: cached.name, ledger_name: input.ledger_name, from_date: input.from_date, to_date: input.to_date,
+      company: cached.name, company_details: JSON.parse(cached.company_details_json), details_available: rows.every(row => row.details_json !== null), ledger_name: input.ledger_name, from_date: input.from_date, to_date: input.to_date,
       opening_balance: balance(opening), entries, total_debit: debit / 100, total_credit: credit / 100, closing_balance: balance(running),
       source: "local_sqlite", last_synced_at: cached.last_synced_at, sync_status: syncing ? "syncing" : stale ? "stale" : "ready", is_stale: stale,
       ...(cached.sync_error ? { sync_error: cached.sync_error } : {})
     };
   }
-  return { begin, company, summary, signatures, ledgers, stageLedgers, stageVouchers, publish, fail, failScope, discard, statement, close: () => db.close() };
+  return { begin, company, summary, signatures, incompleteDetails, ledgers, stageLedgers, stageVouchers, publish, fail, failScope, discard, statement, close: () => db.close() };
 }

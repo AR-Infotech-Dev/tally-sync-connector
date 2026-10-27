@@ -1,20 +1,63 @@
+{{!-- Complete voucher XML: no shared inventory/bill fragment files. --}}
 <TALLYMESSAGE xmlns:UDF="TallyUDF">
-    <VOUCHER VCHTYPE="{{{voucherType}}}" ACTION="Create" OBJVIEW="{{{view}}}">
-        <DATE>{{{date}}}</DATE>
-        <VCHSTATUSDATE>{{{date3}}}</VCHSTATUSDATE>
-        <VOUCHERTYPENAME>{{{voucherTypeValue}}}</VOUCHERTYPENAME>
-        {{{value5}}}
-        {{{value6}}}
-        {{{value7}}}
-        {{{value8}}}
-        <PARTYLEDGERNAME>{{{party}}}</PARTYLEDGERNAME>
-        <ISINVOICE>{{{value10}}}</ISINVOICE>
-        <PERSISTEDVIEW>{{{view11}}}</PERSISTEDVIEW>
-        {{{value12}}}
-        <EFFECTIVEDATE>{{{date13}}}</EFFECTIVEDATE>
-        <DIFFACTUALQTY>No</DIFFACTUALQTY>
-        {{{entries}}}
-        {{{partyXml}}}
-        {{{customXml}}}
-    </VOUCHER>
+  <VOUCHER VCHTYPE="{{{voucherType}}}" ACTION="Create" OBJVIEW="Invoice Voucher View">
+    <DATE>{{date}}</DATE>
+    <VCHSTATUSDATE>{{date}}</VCHSTATUSDATE>
+    <VOUCHERTYPENAME>{{{voucherType}}}</VOUCHERTYPENAME>
+    {{#if voucherNo}}<VOUCHERNUMBER>{{{voucherNo}}}</VOUCHERNUMBER>{{/if}}
+    {{#unless isOrder}}{{#if orderNo}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{/if}}{{/unless}}
+    {{#if reference}}<REFERENCE>{{{reference}}}</REFERENCE>{{/if}}
+    {{#if supplierInvoiceDate}}<REFERENCEDATE>{{supplierInvoiceDate}}</REFERENCEDATE>{{/if}}
+    <PARTYLEDGERNAME>{{{party}}}</PARTYLEDGERNAME>
+    <ISINVOICE>{{isInvoice}}</ISINVOICE>
+    <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+    {{#unless isOrder}}<VCHENTRYMODE>{{{voucherMode}}}</VCHENTRYMODE>{{/unless}}
+    <EFFECTIVEDATE>{{date}}</EFFECTIVEDATE>
+    <DIFFACTUALQTY>No</DIFFACTUALQTY>
+    {{#each entries}}
+    <ALLINVENTORYENTRIES.LIST>
+      <STOCKITEMNAME>{{{name}}}</STOCKITEMNAME>
+      {{#unless @root.isOrder}}{{#if orderNo}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{/if}}{{/unless}}
+      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+      <ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE>
+      <RATE>{{{rate}}}</RATE>
+      <AMOUNT>{{amount}}</AMOUNT>
+      <ACTUALQTY>{{{quantity}}}</ACTUALQTY>
+      <BILLEDQTY>{{{quantity}}}</BILLEDQTY>
+      {{#if hasBatch}}<BATCHALLOCATIONS.LIST>
+        {{#if manufacturedOn}}<MFDON>{{manufacturedOn}}</MFDON>{{/if}}
+        {{#if godown}}<GODOWNNAME>{{{godown}}}</GODOWNNAME>{{/if}}
+        {{#if batchName}}<BATCHNAME>{{{batchName}}}</BATCHNAME>{{/if}}
+        {{#if @root.isOrder}}{{#if orderNo}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{/if}}{{else}}{{#if godown}}
+        <DESTINATIONGODOWNNAME>{{{godown}}}</DESTINATIONGODOWNNAME>{{/if}}{{/if}}
+        <AMOUNT>{{amount}}</AMOUNT>
+        <ACTUALQTY>{{{quantity}}}</ACTUALQTY>
+        <BILLEDQTY>{{{quantity}}}</BILLEDQTY>
+        {{#if dueDate}}<ORDERDUEDATE JD="{{dueDate.julianDay}}" P="{{dueDate.display}}">{{dueDate.display}}
+        </ORDERDUEDATE>{{/if}}
+        {{#if expiry}}<EXPIRYPERIOD>{{{expiry}}}</EXPIRYPERIOD>{{/if}}
+      </BATCHALLOCATIONS.LIST>{{/if}}
+      {{#if purchaseLedger}}<ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>{{{purchaseLedger}}}</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+        <AMOUNT>{{amount}}</AMOUNT>
+      </ACCOUNTINGALLOCATIONS.LIST>{{/if}}
+    </ALLINVENTORYENTRIES.LIST>
+    {{/each}}
+    <LEDGERENTRIES.LIST>
+      <LEDGERNAME>{{{partyLedger}}}</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+      <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+      <ISLASTDEEMEDPOSITIVE>No</ISLASTDEEMEDPOSITIVE>
+      <AMOUNT>{{partyAmount}}</AMOUNT>
+      {{#if billReference}}<BILLALLOCATIONS.LIST>
+        <NAME>{{{billReference}}}</NAME>
+        <BILLTYPE>{{{billType}}}</BILLTYPE>
+        <AMOUNT>{{partyAmount}}</AMOUNT>
+      </BILLALLOCATIONS.LIST>{{/if}}
+    </LEDGERENTRIES.LIST>
+    {{#each customFields}}
+    <UDF:{{name}}>{{{value}}}</UDF:{{name}}>
+    {{/each}}
+  </VOUCHER>
 </TALLYMESSAGE>

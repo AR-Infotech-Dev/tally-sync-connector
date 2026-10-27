@@ -77,13 +77,17 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
         }));
       });
 
-      request.on("timeout", () => request.destroy(new Error(`Tally request timed out after ${timeoutMs}ms.`)));
+      request.on("timeout", () => request.destroy(Object.assign(new Error(`Tally request timed out after ${timeoutMs}ms.`), { code: "TALLY_TIMEOUT" })));
       const abort = () => request.destroy(new Error("Tally request cancelled."));
       options.signal?.addEventListener("abort", abort, { once: true });
       request.on("close", () => options.signal?.removeEventListener("abort", abort));
       request.on("error", (cause) => {
         const code = cause.code ? ` (${cause.code})` : "";
-        reject(new Error(`Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`));
+        const unavailable = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH"].includes(cause.code);
+        reject(Object.assign(new Error(`Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`, { cause }), {
+          ...(unavailable ? { code: "TALLY_NOT_CONNECTED", httpStatus: 503 } : {}),
+          ...(cause.code === "TALLY_TIMEOUT" ? { code: "TALLY_TIMEOUT", httpStatus: 504 } : {}),
+        }));
       });
       request.end(xml);
     });

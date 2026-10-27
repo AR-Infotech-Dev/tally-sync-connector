@@ -7,7 +7,7 @@
         <IMPORTDATA>
             <REQUESTDESC>
                 <REPORTNAME>Vouchers</REPORTNAME>
-                <STATICVARIABLES>{{{company}}}</STATICVARIABLES>
+                <STATICVARIABLES>{{#if company}}<SVCURRENTCOMPANY>{{{company}}}</SVCURRENTCOMPANY>{{/if}}</STATICVARIABLES>
             </REQUESTDESC>
             <REQUESTDATA>{{#each messages}}{{{this}}}{{/each}}</REQUESTDATA>
         </IMPORTDATA>

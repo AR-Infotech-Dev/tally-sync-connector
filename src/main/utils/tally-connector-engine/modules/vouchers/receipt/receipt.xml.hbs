@@ -1,14 +1,29 @@
+{{!-- Complete Receipt XML; bill allocations appear only with a reference. --}}
 <TALLYMESSAGE xmlns:UDF="TallyUDF">
-    <VOUCHER VCHTYPE="{{{voucherType}}}" ACTION="Create" OBJVIEW="Accounting Voucher View">
-        <DATE>{{{date}}}</DATE>
-        <VCHSTATUSDATE>{{{date2}}}</VCHSTATUSDATE>
-        <VOUCHERTYPENAME>{{{voucherTypeValue}}}</VOUCHERTYPENAME>
-        <VOUCHERNUMBER>{{{voucherNo}}}</VOUCHERNUMBER>
-        <PARTYLEDGERNAME>{{{party}}}</PARTYLEDGERNAME>
-        <ISINVOICE>No</ISINVOICE>
-        <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
-        <EFFECTIVEDATE>{{{date6}}}</EFFECTIVEDATE>
-        {{{ledgerEntries}}}
-        {{{customXml}}}
-    </VOUCHER>
+  <VOUCHER VCHTYPE="{{{voucherType}}}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+    <DATE>{{date}}</DATE>
+    <VCHSTATUSDATE>{{date}}</VCHSTATUSDATE>
+    <VOUCHERTYPENAME>{{{voucherType}}}</VOUCHERTYPENAME>
+    <VOUCHERNUMBER>{{{voucherNo}}}</VOUCHERNUMBER>
+    <PARTYLEDGERNAME>{{{party}}}</PARTYLEDGERNAME>
+    <ISINVOICE>No</ISINVOICE>
+    <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
+    <EFFECTIVEDATE>{{date}}</EFFECTIVEDATE>
+    {{#each ledgerEntries}}
+    <ALLLEDGERENTRIES.LIST>
+      <LEDGERNAME>{{{ledger}}}</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>{{positive}}</ISDEEMEDPOSITIVE>
+      <ISPARTYLEDGER>{{isParty}}</ISPARTYLEDGER>
+      <AMOUNT>{{amount}}</AMOUNT>
+      {{#if billReference}}<BILLALLOCATIONS.LIST>
+        <NAME>{{{billReference}}}</NAME>
+        <BILLTYPE>{{{billType}}}</BILLTYPE>
+        <AMOUNT>{{amount}}</AMOUNT>
+      </BILLALLOCATIONS.LIST>{{/if}}
+    </ALLLEDGERENTRIES.LIST>
+    {{/each}}
+    {{#each customFields}}
+    <UDF:{{name}}>{{{value}}}</UDF:{{name}}>
+    {{/each}}
+  </VOUCHER>
 </TALLYMESSAGE>

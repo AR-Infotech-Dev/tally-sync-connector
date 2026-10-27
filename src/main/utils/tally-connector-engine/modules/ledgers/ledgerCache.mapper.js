@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { escapeXml } from "../../shared/utils/xmlHelpers.js";
 import { records, field, children, nameOf, yes, cents } from "./statement.js";
+import { inventoryDetails, billDetails, companyDetails, bankDetails } from "./statementDetails.mapper.js";
 
 const TO = "20991231";
 function collection(company, name, body, fromDate) {
@@ -13,7 +14,7 @@ function requireBooksDate(fromDate) {
 }
 
 export function buildCacheCompaniesRequest() {
-  return collection("", "Flowups Cache Companies", '<COLLECTION NAME="Flowups Cache Companies"><TYPE>Company</TYPE><FETCH>Name,GUID,BooksFrom,StartingFrom</FETCH></COLLECTION>');
+  return collection("", "Flowups Cache Companies", '<COLLECTION NAME="Flowups Cache Companies"><TYPE>Company</TYPE><FETCH>Name,GUID,BooksFrom,StartingFrom,Address,PinCode,Email</FETCH></COLLECTION>');
 }
 export function parseCacheCompanies(xml) {
   return records(xml, "COMPANY").map((node) => {
@@ -21,7 +22,7 @@ export function parseCacheCompanies(xml) {
     const guid = field(node, "GUID");
     if (!name || !guid) throw new Error("Tally company export must include Name and GUID for cache isolation.");
     const booksFrom = field(node, "BOOKSFROM") || field(node, "STARTINGFROM");
-    return { name, guid, books_from: requireBooksDate(booksFrom) };
+    return { name, guid, books_from: requireBooksDate(booksFrom), company_details: companyDetails(node) };
   });
 }
 
@@ -47,7 +48,8 @@ export function parseCacheManifest(xml) {
     const id = field(node, "MASTERID");
     const alter = field(node, "ALTERID");
     if (!/^\d+$/.test(id) || Number(id) < 1 || !/^\d+$/.test(alter)) throw new Error("Tally must return MasterID and AlterID for incremental ledger sync.");
-    const signature = createHash("sha256").update(JSON.stringify([alter, field(node, "GUID"), field(node, "DATE"), field(node, "VOUCHERNUMBER"), field(node, "VOUCHERTYPENAME"), field(node, "ISCANCELLED"), field(node, "ISOPTIONAL")])).digest("hex");
+    // Versioned payload forces one backfill of details for pre-upgrade snapshots.
+    const signature = createHash("sha256").update(JSON.stringify(["statement-details-v2", alter, field(node, "GUID"), field(node, "DATE"), field(node, "VOUCHERNUMBER"), field(node, "VOUCHERTYPENAME"), field(node, "ISCANCELLED"), field(node, "ISOPTIONAL")])).digest("hex");
     return { id, alter_id: alter, signature };
   });
   if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new Error("Tally returned duplicate IDs in the sync manifest.");
@@ -56,7 +58,7 @@ export function parseCacheManifest(xml) {
 
 export function buildCacheVoucherBatchRequest(company, ids, fromDate) {
   if (!ids.length || ids.length > 25 || ids.some((id) => !/^\d+$/.test(id))) throw new Error("Invalid voucher sync batch.");
-  return collection(company, "Flowups Cache Voucher Batch", `<COLLECTION NAME="Flowups Cache Voucher Batch"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,Narration,IsCancelled,IsOptional,IsOrderVoucher,AllLedgerEntries.*,LedgerEntries.*</FETCH><COMPUTE>FlowupsNonPosting : $$IsSalesOrder:$VoucherTypeName OR $$IsPurcOrder:$VoucherTypeName OR $$IsDelNote:$VoucherTypeName OR $$IsRcptNote:$VoucherTypeName OR $$IsStockJournal:$VoucherTypeName OR $$IsPhyStock:$VoucherTypeName</COMPUTE><FILTER>FlowupsCacheIds</FILTER></COLLECTION><SYSTEM TYPE="Formulae" NAME="FlowupsCacheIds">${ids.map((id) => `$MasterID = ${id}`).join(" OR ")}</SYSTEM>`, requireBooksDate(fromDate));
+  return collection(company, "Flowups Cache Voucher Batch", `<COLLECTION NAME="Flowups Cache Voucher Batch"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,Narration,IsCancelled,IsOptional,IsOrderVoucher,AllLedgerEntries.*,LedgerEntries.*,AllLedgerEntries.BankAllocations.*,LedgerEntries.BankAllocations.*,AllLedgerEntries.BillAllocations.*,LedgerEntries.BillAllocations.*,AllInventoryEntries.*,InventoryEntries.*,InventoryEntriesIn.*,InventoryEntriesOut.*</FETCH><COMPUTE>FlowupsNonPosting : $$IsSalesOrder:$VoucherTypeName OR $$IsPurcOrder:$VoucherTypeName OR $$IsDelNote:$VoucherTypeName OR $$IsRcptNote:$VoucherTypeName OR $$IsStockJournal:$VoucherTypeName OR $$IsPhyStock:$VoucherTypeName</COMPUTE><FILTER>FlowupsCacheIds</FILTER></COLLECTION><SYSTEM TYPE="Formulae" NAME="FlowupsCacheIds">${ids.map((id) => `$MasterID = ${id}`).join(" OR ")}</SYSTEM>`, requireBooksDate(fromDate));
 }
 
 export function buildCacheVoucherTypesRequest(company) {
@@ -94,12 +96,16 @@ export function parseCacheVoucherBatch(xml, manifest, nonPostingTypes = new Set(
       const ledger = field(allocation, "LEDGERNAME");
       const direction = field(allocation, "ISDEEMEDPOSITIVE");
       if (!ledger || !/^(yes|no|true|false|0|1)$/i.test(direction)) throw new Error("Tally returned incomplete ledger allocations during sync.");
-      if (!groups.has(ledger)) groups.set(ledger, { ledger_name: ledger, debit_cents: 0, credit_cents: 0 });
+      if (!groups.has(ledger)) groups.set(ledger, { ledger_name: ledger, debit_cents: 0, credit_cents: 0, bill_allocations: [] });
+      groups.get(ledger).bill_allocations.push(...billDetails(allocation));
       groups.get(ledger)[yes(direction) ? "debit_cents" : "credit_cents"] += cents(field(allocation, "AMOUNT"));
     }
     // A non-posting inventory voucher can legitimately have no ledger entries.
     // Accounting vouchers must never silently enter the cache without allocations.
     if (!allocations.length) throw new Error("Tally returned a posting voucher without ledger allocations; local sync was not published.");
+    result.inventory_entries = inventoryDetails(node);
+    result.bank_allocations = bankDetails(allocations);
+    result.details_version = 2;
     result.entries = [...groups.values()].map((entry) => ({ ...entry, particulars: [...groups.keys()].filter((name) => name !== entry.ledger_name) }));
     return result;
   });

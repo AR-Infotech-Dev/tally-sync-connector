@@ -1,0 +1,22 @@
+{
+  "companyName": "Demo Company",
+  "purchase": {
+    "voucher_type": "Purchase",
+    "voucher_number": "PUR-DEMO-001",
+    "date": "2026-10-31",
+    "purchase_ledger": "Purchase",
+    "party": {
+      "ledger_name": "Demo Supplier"
+    },
+    "items": [
+      {
+        "stock_item": "Demo Item",
+        "quantity": 2,
+        "unit": "Nos",
+        "rate": 100,
+        "amount": 200
+      }
+    ],
+    "total_amount": 200
+  }
+}
