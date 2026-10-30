@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { createHash } from "node:crypto";
 import { cacheScope } from "../models/ledgerCache.model.js";
 import { createLedgerSyncSource } from "./ledgerSync.source.js";
 import { manifestKey } from "../utils/tally-connector-engine/modules/ledgers/ledgerCache.mapper.js";
@@ -61,8 +62,11 @@ export function createLedgerSync({ cache, onActivity = () => { }, sourceFactory 
     try {
       const source = sourceFactory(activeConfig, controller.signal);
       const companies = await source.companies();
-      const selected = activeConfig.tallyCompany ? companies.filter((company) => companyNameKey(company.name) === companyNameKey(activeConfig.tallyCompany)) : companies;
-      if (!selected.length) throw new Error(`Configured company '${activeConfig.tallyCompany || "(none)"}' was not found. Open companies: ${companies.map((company) => company.name).join(", ") || "none"}.`);
+      // Company selection is a request-time concern. The local snapshot must
+      // discover and retain every company Tally exposes, not only the
+      // Connector's historical default company setting.
+      const selected = companies;
+      if (!selected.length) throw new Error("No companies were returned by Tally. Open at least one company and retry sync.");
       if (new Set(selected.map((company) => companyNameKey(company.name))).size !== selected.length) throw new Error("Open Tally companies must have unique names for statement requests.");
       for (const identity of selected) {
         controller.signal.throwIfAborted();
@@ -99,14 +103,43 @@ export function createLedgerSync({ cache, onActivity = () => { }, sourceFactory 
     void tick();
   }
   function statement(activeConfig, lookup) {
-    const company = lookup.company || activeConfig.tallyCompany;
+    const company = resolveCompany(activeConfig, lookup.company_id) || lookup.company || activeConfig.tallyCompany;
     if (!company) throw Object.assign(new Error("Pass company in the body when multiple Tally companies are cached."), { httpStatus: 400 });
-    return cache.statement(cacheScope(activeConfig), { ...lookup, company }, { syncing: running, connected: enabled });
+    const resolved = cache.resolveLedger(cacheScope(activeConfig), { ...lookup, company });
+    return cache.statement(cacheScope(activeConfig), { ...lookup, ...resolved, company }, { syncing: running, connected: enabled });
+  }
+  function groupSummary(activeConfig, lookup) {
+    const company = resolveCompany(activeConfig, lookup.company_id) || lookup.company || activeConfig.tallyCompany;
+    if (!company) throw Object.assign(new Error("Pass company in the body when multiple Tally companies are cached."), { httpStatus: 400 });
+    return cache.groupSummary(cacheScope(activeConfig), { ...lookup, company }, { syncing: running, connected: enabled });
+  }
+  function resolveLedger(activeConfig, lookup) {
+    const company = lookup.company || activeConfig.tallyCompany;
+    if (!company) throw Object.assign(new Error("Pass company in the request when multiple Tally companies are cached."), { httpStatus: 400 });
+    return cache.resolveLedger(cacheScope(activeConfig), { ...lookup, company });
   }
   function getStatus(activeConfig) {
     const totals = cache.summary(cacheScope(activeConfig), activeConfig.tallyCompany);
     const dates = totals.companies.map((row) => row.last_synced_at).filter(Boolean).sort();
     return { ...progress, ...totals, enabled, last_synced_at: dates[0] || null };
   }
-  return { start, stop, statement, getStatus, get running() { return running; } };
+  function listCompanies(activeConfig) {
+    const scope = cacheScope(activeConfig);
+    return cache.listCompanies(scope).map((row) => ({
+      company_id: `COMP_${createHash("sha256").update(`${activeConfig.clientId}:${row.guid}`).digest("hex").slice(0, 20).toUpperCase()}`,
+      company_name: row.name,
+      tally_guid: row.guid,
+      status: row.active && row.sync_status === "ready" ? "active" : "inactive",
+      last_synced_at: row.last_synced_at || null,
+      ...(row.sync_error ? { sync_error: row.sync_error } : {}),
+    }));
+  }
+  function resolveCompany(activeConfig, companyId) {
+    if (!companyId) return activeConfig.tallyCompany || null;
+    const company = listCompanies(activeConfig).find((item) => item.company_id === companyId);
+    if (!company) throw Object.assign(new Error("Company ID does not exist for this Connector."), { httpStatus: 404, code: "COMPANY_NOT_FOUND" });
+    if (company.status !== "active") throw Object.assign(new Error(`Company '${company.company_name}' is not active in Tally.`), { httpStatus: 409, code: "COMPANY_NOT_ACTIVE" });
+    return company.company_name;
+  }
+  return { start, stop, statement, groupSummary, resolveLedger, listCompanies, resolveCompany, getStatus, get running() { return running; } };
 }

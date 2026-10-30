@@ -1,6 +1,6 @@
 {
   "name": "tally-sync-connector",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "private": true,
   "description": "Flowups Tally Sync Connector desktop application",
   "author": "AR Infotech",
@@ -12,9 +12,8 @@
     "dev:electron": "wait-on http://127.0.0.1:5173 && nodemon --watch src/main --watch src/preload --ext js,cjs --exec electron .",
     "build": "vite build --config vite.config.js",
     "package:win": "npm run build && node scripts/build-protected.js --x64",
-    "start": "npm run dev",
-    "engine:preview": "node scripts/preview-voucher.js",
-    "engine:check": "node --test test/voucher-xml.test.js"
+    "release:upload": "node scripts/release-upload.js --x64",
+    "start": "npm run dev"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",

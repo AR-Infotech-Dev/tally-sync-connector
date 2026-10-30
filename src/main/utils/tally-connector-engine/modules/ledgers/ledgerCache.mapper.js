@@ -27,7 +27,7 @@ export function parseCacheCompanies(xml) {
 }
 
 export function buildCacheLedgersRequest(company, fromDate) {
-  return collection(company, "Flowups Cache Ledgers", '<COLLECTION NAME="Flowups Cache Ledgers"><TYPE>Ledger</TYPE><FETCH>Name,MasterID,GUID,AlterID,OpeningBalance</FETCH><COMPUTE>FlowupsOpeningAmount : $$AsPositive:$OpeningBalance</COMPUTE><COMPUTE>FlowupsOpeningDr : $$IsDr:$OpeningBalance</COMPUTE></COLLECTION>', requireBooksDate(fromDate));
+  return collection(company, "Flowups Cache Ledgers", '<COLLECTION NAME="Flowups Cache Ledgers"><TYPE>Ledger</TYPE><FETCH>Name,Parent,MasterID,GUID,AlterID,OpeningBalance,Narration</FETCH><COMPUTE>FlowupsOpeningAmount : $$AsPositive:$OpeningBalance</COMPUTE><COMPUTE>FlowupsOpeningDr : $$IsDr:$OpeningBalance</COMPUTE><COMPUTE>FlowupsNarration : $Narration</COMPUTE></COLLECTION>', requireBooksDate(fromDate));
 }
 export function parseCacheLedgers(xml) {
   return records(xml, "LEDGER").map((node) => {
@@ -35,7 +35,11 @@ export function parseCacheLedgers(xml) {
     const direction = field(node, "FLOWUPSOPENINGDR");
     const amount = field(node, "FLOWUPSOPENINGAMOUNT");
     if (!name || !amount || !/^(yes|no|true|false|0|1)$/i.test(direction)) throw new Error("Tally returned an incomplete ledger master for local sync.");
-    return { name, master_id: field(node, "MASTERID"), guid: field(node, "GUID"), opening_cents: cents(amount) * (yes(direction) ? 1 : -1) };
+    const parent_group = field(node, "PARENT");
+    if (!parent_group) throw new Error("Tally returned a ledger without its parent group during local sync.");
+    // The TDL label is "Dealer Code", while the underlying UDF/storage name is Narration.
+    const dealerCode = field(node, "FLOWUPSNARRATION") || field(node, "FLOWUPSDEALERCODE") || field(node, "NARRATION") || field(node, "DEALERCODE") || field(node, "DEALER_CODE") || field(node, "DEALER CODE");
+    return { name, parent_group, dealer_code: dealerCode, master_id: field(node, "MASTERID"), guid: field(node, "GUID"), opening_cents: cents(amount) * (yes(direction) ? 1 : -1) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 

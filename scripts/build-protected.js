@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { build as esbuild } from "esbuild";
 import JavaScriptObfuscator from "javascript-obfuscator";
+import { loadReleaseConfig, uploadRelease, validateReleaseIdentity } from "./release-publisher.js";
 
 const projectRoot = path.resolve(".");
 const args = process.argv.slice(2);
@@ -10,6 +11,8 @@ const architecture = args.includes("--ia32") ? "ia32" : "x64";
 const buildRoot = path.join(projectRoot, "build");
 const stageDir = path.join(buildRoot, `protected-app-${architecture}-${Date.now()}`);
 const packageConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+const releaseConfig = loadReleaseConfig({ projectRoot });
+if (releaseConfig) validateReleaseIdentity(packageConfig.version, architecture);
 
 // Match the protection settings used by Soul Tally Connect for Electron code.
 const obfuscationOptions = {
@@ -40,7 +43,19 @@ copyVoucherTemplates();
 writePackagedManifest();
 validateStage();
 runElectronBuilder();
-publishSetup();
+const installerPath = publishSetup();
+if (releaseConfig) {
+  try {
+    const result = await uploadRelease({ installerPath, version: packageConfig.version, architecture, config: releaseConfig });
+    console.info(`Published Connector ${result.release.version} (${result.release.architecture}).`);
+    console.info(`Download: ${result.downloadUrl}`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+} else {
+  console.info("Server upload skipped. Set CONNECTOR_RELEASE_SERVER_URL and CONNECTOR_RELEASE_TOKEN in .env.release to publish builds automatically.");
+}
 
 async function bundleAndObfuscateMain() {
   const outputFile = path.join(stageDir, "src/main/index.cjs");
@@ -177,6 +192,7 @@ function publishSetup() {
   fs.mkdirSync(releaseDir, { recursive: true });
   fs.copyFileSync(stagedInstaller, finalInstaller);
   console.info(`Protected setup executable: ${path.relative(projectRoot, finalInstaller)}`);
+  return finalInstaller;
 }
 
 function listFiles(directory) {

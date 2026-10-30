@@ -50,7 +50,7 @@ export default function App() {
   }
 
   async function registerClient(result) {
-    const nextConfig = { ...config, serverUrl: result.serverUrl || config.serverUrl, clientId: result.clientId, connectorId: result.connectorId, connectorKey: "", tallyCompany: '', onboardingPending:true };
+    const nextConfig = { ...config, serverUrl: result.serverUrl || config.serverUrl, clientId: result.clientId, connectorId: result.connectorId, connectorKey: "", tallyCompany: '', onboardingPending: true };
     const saved = await saveConfig(nextConfig);
     setConfig(saved);
     monitor.setStatus({
@@ -63,19 +63,19 @@ export default function App() {
   }
 
   async function startNewRegistration() {
-    const saved = await saveConfig({ ...config, clientId: "", connectorId: "", connectorKey: "", tallyCompany:'', onboardingPending:false });
+    const saved = await saveConfig({ ...config, clientId: "", connectorId: "", connectorKey: "", tallyCompany: '', onboardingPending: false });
     setConfig(saved);
     setPage('monitor');
   }
 
-  if (loading) return <div className="loading-shell"><span className="loading-spinner"/>Loading Connector…</div>;
-  if ((config.onboardingPending || page === 'onboarding') && page !== 'settings') return <div className="onboarding-shell"><OnboardingModulePage config={config} status={monitor.status} sync={monitor.ledgerSync} onSaved={setConfig} onConnect={connect} onComplete={()=>setPage('monitor')} onManual={()=>setPage('settings')}/></div>;
-  if (page === 'settings' && config.onboardingPending) return <div className="onboarding-shell"><SettingsModulePage config={config} onConnect={connect} onSaved={setConfig} onBack={()=>setPage('onboarding')} onNewRegistration={startNewRegistration}/></div>;
-  if (!config.clientId) return <div className="registration-shell"><header className="registration-brand"><span className="brand-mark">TS</span><div><p className="eyebrow">TALLY SYNC</p><h1>Connector</h1></div></header><ClientRegistrationForm serverUrl={config.serverUrl || "http://127.0.0.1:3000"} onServerUrlChange={(serverUrl) => setConfig((current) => ({ ...current, serverUrl }))} onRegistered={registerClient}/><button className="button button-outline" onClick={()=>saveConfig({...config,onboardingPending:true}).then(()=>setPage('onboarding')).catch(()=>{})}>Already registered? Activate Connector</button><p className="registration-footer">The Connector runs on the computer where TallyPrime is installed.</p></div>;
+  if (loading) return <div className="loading-shell"><span className="loading-spinner" />Loading Connector…</div>;
+  if ((config.onboardingPending || page === 'onboarding') && page !== 'settings') return <div className="onboarding-shell"><OnboardingModulePage config={config} status={monitor.status} sync={monitor.ledgerSync} onSaved={setConfig} onConnect={connect} onComplete={() => setPage('monitor')} onManual={() => setPage('settings')} /></div>;
+  if (page === 'settings' && config.onboardingPending) return <div className="onboarding-shell"><SettingsModulePage config={config} onConnect={connect} onSaved={setConfig} onBack={() => setPage('onboarding')} onNewRegistration={startNewRegistration} /></div>;
+  if (!config.clientId) return <div className="registration-shell"><header className="registration-brand"><span className="brand-mark">TS</span><div><p className="eyebrow">TALLY SYNC</p><h1>Connector</h1></div></header><ClientRegistrationForm serverUrl={config.serverUrl || "http://127.0.0.1:3000"} onServerUrlChange={(serverUrl) => setConfig((current) => ({ ...current, serverUrl }))} onRegistered={registerClient} /><button className="button button-outline" onClick={() => saveConfig({ ...config, onboardingPending: true }).then(() => setPage('onboarding')).catch(() => { })}>Already registered? Activate Connector</button><p className="registration-footer">The Connector runs on the computer where TallyPrime is installed.</p></div>;
 
   return <AppLayout page={page} onNavigate={setPage} status={monitor.status}>
-    {page === "monitor" && <MonitorModulePage config={config} status={monitor.status} activity={monitor.activity} ledgerSync={monitor.ledgerSync} tallyStatus={tallyStatus} onOpenSettings={() => setPage("settings")} onOpenLogs={() => setPage("logs")} onConnect={connect} onTestTally={testTally} onClear={monitor.clearActivity}/>}
-    {page === "settings" && <SettingsModulePage config={config} onConnect={connect} onSaved={setConfig} onBack={() => setPage("monitor")} onNewRegistration={startNewRegistration}/>}
-    {page === "logs" && <LogsModulePage onBack={() => setPage("monitor")}/>}
+    {page === "monitor" && <MonitorModulePage config={config} status={monitor.status} activity={monitor.activity} ledgerSync={monitor.ledgerSync} tallyStatus={tallyStatus} onOpenSettings={() => setPage("settings")} onOpenLogs={() => setPage("logs")} onConnect={connect} onTestTally={testTally} onClear={monitor.clearActivity} />}
+    {page === "settings" && <SettingsModulePage config={config} onConnect={connect} onSaved={setConfig} onBack={() => setPage("monitor")} onNewRegistration={startNewRegistration} />}
+    {page === "logs" && <LogsModulePage onBack={() => setPage("monitor")} />}
   </AppLayout>;
 }

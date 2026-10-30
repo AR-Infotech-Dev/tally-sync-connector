@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { fetchLedgerStatement } from "../services/ledgerStatement.service.js";
+import { fetchLedgerStatement, fetchGroupSummary } from "../services/ledgerStatement.service.js";
 import { buildSalesOrderSearchRequest, parseSalesOrderSearchResponse, buildSalesOrderObjectRequest, parseSalesOrderObjectResponse } from "../utils/tally-connector-engine/modules/vouchers/sales-order/sales-order.lookup.js";
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
@@ -42,6 +42,18 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
   });
   registerTallyAvailabilityCheck(socket, config);
   const recordConnectionActivity = (status, message) => onActivity?.({ status, message, at: new Date().toISOString() });
+
+  socket.on(EVENTS.companyList, (_payload = {}, acknowledge = () => {}) => {
+    if (!ledgerSync?.listCompanies) {
+      acknowledge({ success: false, code: "COMPANY_LIST_UNAVAILABLE", message: "Local company cache is unavailable." });
+      return;
+    }
+    try {
+      acknowledge({ success: true, companies: ledgerSync.listCompanies(config) });
+    } catch (error) {
+      acknowledge({ success: false, code: "COMPANY_LIST_FAILED", message: error.message });
+    }
+  });
 
   function getLedgerCandidates(voucher, transactionType) {
     const candidates = new Map();
@@ -88,6 +100,25 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     }
     add(voucher.sales_ledger, voucher.sales_ledger_group || "Sales Accounts");
     return candidates;
+  }
+
+  function resolvePartyDealerCode(voucher, company, transactionType) {
+    const party = voucher.party || {};
+    const dealerCode = party.dealer_code || voucher.dealer_code || voucher.party_dealer_code;
+    if (!dealerCode) return voucher;
+    if (!ledgerSync?.resolveLedger) throw new Error("Dealer code lookup is unavailable until the local ledger sync is ready.");
+    const resolved = ledgerSync.resolveLedger(config, { company, dealer_code: dealerCode });
+    const ledgerName = resolved.ledger_name;
+    const next = {
+      ...voucher,
+      party: { ...party, dealer_code: dealerCode, ledger_name: ledgerName },
+      party_ledger: ledgerName,
+      party_ledger_entry: { ...(voucher.party_ledger_entry || {}), ledger: ledgerName },
+    };
+    if (Object.prototype.hasOwnProperty.call(voucher, "customer_ledger")) next.customer_ledger = ledgerName;
+    if (Object.prototype.hasOwnProperty.call(voucher, "supplier_ledger")) next.supplier_ledger = ledgerName;
+    recordConnectionActivity("info", `Dealer code '${dealerCode}' resolved to ledger '${ledgerName}' for ${transactionType}.`);
+    return next;
   }
 
   function findMissingLedgers(errors = []) {
@@ -267,7 +298,10 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
     if (typeof signal.request_id === "string") void processSalesOrderLookup(signal.request_id);
   });
   socket.on(EVENTS.ledgerStatementFetch, (signal = {}) => {
-    if (typeof signal.request_id === "string") void processLedgerStatement(signal.request_id);
+    if (typeof signal.request_id === "string") {
+      if (signal.transaction_type === "group_summary") void processGroupSummary(signal.request_id);
+      else void processLedgerStatement(signal.request_id);
+    }
   });
   socket.on(EVENTS.salesVoucherPush, (signal = {}) => acknowledgeTransactionSignal(signal, "sales_voucher"));
   socket.on(EVENTS.receiptVoucherPush, (signal = {}) => acknowledgeTransactionSignal(signal, "receipt_voucher"));
@@ -313,13 +347,16 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       const fetchRequest = voucherRequestServices[transactionType];
       if (!fetchRequest) throw new Error(`Unsupported voucher transaction type: ${transactionType}`);
       const request = await fetchRequest({ config, requestId });
-      const voucherData = isReceiptVoucher ? request.receipt
+      let voucherData = isReceiptVoucher ? request.receipt
         : isPaymentVoucher ? request.payment
           : isPurchaseOrder ? request.purchase_order
             : isPurchaseVoucher ? request.purchase : request.sales || request.sales_order;
       if (!voucherData) throw new Error(`Server returned no voucher data for ${transactionLabel}.`);
+      const companyName = ledgerSync?.resolveCompany
+        ? ledgerSync.resolveCompany(config, request.destination?.company_id) || config.tallyCompany || request.destination?.company || request.destination?.company_name
+        : config.tallyCompany || request.destination?.company || request.destination?.company_name;
+      voucherData = resolvePartyDealerCode(voucherData, companyName, transactionType);
       update("building_xml", `${transactionLabel} fetched. Building Tally XML…`);
-      const companyName = config.tallyCompany || request.destination?.company || request.destination?.company_name;
       const xml = isReceiptVoucher
         ? buildReceiptVoucherXml({ companyName, receipt: voucherData })
         : isPaymentVoucher ? buildPaymentVoucherXml({ companyName, payment: voucherData })
@@ -392,6 +429,24 @@ export function createConnectorSocket({ config, notify, onActivity, temporaryDir
       const statement = await fetchLedgerStatement({ config, requestId, ledgerSync });
       update("succeeded", { tally_result: { statement } });
       onActivity?.({ requestId, status: "succeeded", message: "Ledger statement read from local SQLite cache.", at: new Date().toISOString() });
+    } catch (error) {
+      update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502, ...tallyFailureResult(error) } });
+      onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });
+    } finally {
+      activeSalesOrders.delete(requestId);
+    }
+  }
+
+  async function processGroupSummary(requestId) {
+    if (activeSalesOrders.has(requestId)) return;
+    activeSalesOrders.add(requestId);
+    const transactionType = "group_summary";
+    const update = (status, extra = {}) => socket.emit(EVENTS.salesOrderUpdate, { request_id: requestId, transaction_type: transactionType, status, ...extra });
+    try {
+      update("fetching");
+      const summary = await fetchGroupSummary({ config, requestId, ledgerSync });
+      update("succeeded", { tally_result: { summary } });
+      onActivity?.({ requestId, status: "succeeded", message: "Group summary read from local SQLite cache.", at: new Date().toISOString() });
     } catch (error) {
       update("failed", { error: error.message, tally_result: { lookup_status: error.httpStatus || 502, ...tallyFailureResult(error) } });
       onActivity?.({ requestId, status: "failed", message: error.message, at: new Date().toISOString() });

@@ -3,3 +3,6 @@ dist/
 release/
 build/
 npm-debug.log*
+.env.release
+.env.release.*
+!.env.release.example

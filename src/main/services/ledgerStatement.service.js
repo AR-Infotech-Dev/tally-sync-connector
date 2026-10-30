@@ -6,3 +6,10 @@ export async function fetchLedgerStatement({ config, requestId, ledgerSync }) {
   if (!ledgerSync) throw new Error("Local ledger database is unavailable. Update and restart the Connector.");
   return ledgerSync.statement(config, request.lookup);
 }
+
+export async function fetchGroupSummary({ config, requestId, ledgerSync }) {
+  const request = await fetchLedgerStatementRequest({ config, requestId });
+  if (request.transaction_type !== "group_summary" || !request.lookup) throw new Error("Invalid group summary job.");
+  if (!ledgerSync) throw new Error("Local ledger database is unavailable. Update and restart the Connector.");
+  return ledgerSync.groupSummary(config, request.lookup);
+}
