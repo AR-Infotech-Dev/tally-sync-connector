@@ -1,12 +1,23 @@
 import { makeRequest } from "../api/httpClient.js";
 
 function setupRequest(serverUrl, path, json) {
-  return makeRequest(path, { baseURL: serverUrl, method: "POST", body: json, authenticated: false, unwrapData: false, timeout: 15000, maxResponseBytes: 65536, requireSecureRemote: true });
+  return makeRequest(path, {
+    baseURL: serverUrl,
+    method: "POST",
+    body: json,
+    authenticated: false,
+    unwrapData: false,
+    timeout: 15000,
+    maxResponseBytes: 65536,
+    requireSecureRemote: true,
+  });
 }
 
 export function registerClientRequest(serverUrl, input) {
   return setupRequest(serverUrl, "/api/v1/clients/register", {
-    name: input.name, company_name: input.companyName, email: input.email,
+    name: input.name,
+    company_name: input.companyName,
+    email: input.email,
     tally_license_no: input.tallyLicenseNo,
   });
 }

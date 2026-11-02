@@ -28,12 +28,16 @@
         {{#if manufacturedOn}}<MFDON>{{manufacturedOn}}</MFDON>{{/if}}
         {{#if godown}}<GODOWNNAME>{{{godown}}}</GODOWNNAME>{{/if}}
         {{#if batchName}}<BATCHNAME>{{{batchName}}}</BATCHNAME>{{/if}}
-        {{#if @root.isOrder}}{{#if orderNo}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{/if}}{{else}}{{#if godown}}
+        {{#if @root.isOrder}}{{#if orderNo}}<ORDERNO
+        >{{{orderNo}}}</ORDERNO>{{/if}}{{else}}{{#if godown}}
         <DESTINATIONGODOWNNAME>{{{godown}}}</DESTINATIONGODOWNNAME>{{/if}}{{/if}}
         <AMOUNT>{{amount}}</AMOUNT>
         <ACTUALQTY>{{{quantity}}}</ACTUALQTY>
         <BILLEDQTY>{{{quantity}}}</BILLEDQTY>
-        {{#if dueDate}}<ORDERDUEDATE JD="{{dueDate.julianDay}}" P="{{dueDate.display}}">{{dueDate.display}}
+        {{#if dueDate}}<ORDERDUEDATE
+          JD="{{dueDate.julianDay}}"
+          P="{{dueDate.display}}"
+        >{{dueDate.display}}
         </ORDERDUEDATE>{{/if}}
         {{#if expiry}}<EXPIRYPERIOD>{{{expiry}}}</EXPIRYPERIOD>{{/if}}
       </BATCHALLOCATIONS.LIST>{{/if}}

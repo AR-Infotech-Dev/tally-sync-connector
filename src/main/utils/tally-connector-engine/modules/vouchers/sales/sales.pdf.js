@@ -6,9 +6,12 @@ import { escapeXml } from "../../../shared/utils/xmlHelpers.js";
  * The requested file path is local to the computer running Tally/Connector.
  */
 export function buildSalesInvoicePdfRequest({ companyName, voucherId, outputPath } = {}) {
-  if (!companyName || !String(companyName).trim()) throw new TypeError("A Tally company name is required to export an invoice.");
-  if (!/^\d+$/.test(String(voucherId ?? ""))) throw new TypeError("A numeric Tally voucher ID is required to export an invoice.");
-  if (!outputPath || !String(outputPath).trim()) throw new TypeError("A local PDF output path is required.");
+  if (!companyName || !String(companyName).trim())
+    throw new TypeError("A Tally company name is required to export an invoice.");
+  if (!/^\d+$/.test(String(voucherId ?? "")))
+    throw new TypeError("A numeric Tally voucher ID is required to export an invoice.");
+  if (!outputPath || !String(outputPath).trim())
+    throw new TypeError("A local PDF output path is required.");
 
   const company = escapeXml(companyName);
   const path = escapeXml(String(outputPath).replaceAll("\\", "/"));

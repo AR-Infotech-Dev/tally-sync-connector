@@ -9,27 +9,50 @@ export function createActivityLogStore(directory) {
 
   function readAll() {
     try {
-      return fs.readFileSync(filePath, "utf8").split(/\r?\n/).filter(Boolean)
-        .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+      return fs
+        .readFileSync(filePath, "utf8")
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
         .filter(Boolean);
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   function append(entry, retentionDays = 30) {
     fs.mkdirSync(directory, { recursive: true });
     const cutoff = Date.now() - Math.max(1, Number(retentionDays) || 30) * 86400000;
-    const entries = [...readAll(), entry].filter((item) => new Date(item.at).getTime() >= cutoff).slice(-MAX_LOG_ENTRIES);
-    fs.writeFileSync(filePath, entries.map((item) => JSON.stringify(item)).join("\n") + "\n", "utf8");
+    const entries = [...readAll(), entry]
+      .filter((item) => new Date(item.at).getTime() >= cutoff)
+      .slice(-MAX_LOG_ENTRIES);
+    fs.writeFileSync(
+      filePath,
+      entries.map((item) => JSON.stringify(item)).join("\n") + "\n",
+      "utf8",
+    );
   }
 
   function list({ limit = 500, search = "", level = "all" } = {}) {
     const query = String(search).trim().toLowerCase();
-    return readAll().filter((entry) => {
-      const entryLevel = entry.status === "failed" ? "error" : entry.status === "succeeded" ? "success" : "info";
-      const matchesLevel = level === "all" || entryLevel === level;
-      const matchesQuery = !query || `${entry.requestId} ${entry.status} ${entry.message}`.toLowerCase().includes(query);
-      return matchesLevel && matchesQuery;
-    }).slice(-Math.min(MAX_LOG_ENTRIES, Math.max(1, Number(limit) || 500))).reverse();
+    return readAll()
+      .filter((entry) => {
+        const entryLevel =
+          entry.status === "failed" ? "error" : entry.status === "succeeded" ? "success" : "info";
+        const matchesLevel = level === "all" || entryLevel === level;
+        const matchesQuery =
+          !query ||
+          `${entry.requestId} ${entry.status} ${entry.message}`.toLowerCase().includes(query);
+        return matchesLevel && matchesQuery;
+      })
+      .slice(-Math.min(MAX_LOG_ENTRIES, Math.max(1, Number(limit) || 500)))
+      .reverse();
   }
 
   function clear() {

@@ -10,7 +10,9 @@ import https from "node:https";
  * @throws {Error} If the endpoint is malformed or uses another protocol.
  */
 function resolveEndpoint(tally = {}) {
-  const endpoint = tally.url || `${tally.protocol || "http:"}//${tally.host || "127.0.0.1"}:${Number(tally.port || 9000)}`;
+  const endpoint =
+    tally.url ||
+    `${tally.protocol || "http:"}//${tally.host || "127.0.0.1"}:${Number(tally.port || 9000)}`;
   let url;
   try {
     url = new URL(endpoint);
@@ -32,7 +34,10 @@ function resolveEndpoint(tally = {}) {
  * @param {{defaultTimeoutMs?: number, maxResponseBytes?: number}} options Transport defaults.
  * @returns {{postXml: Function}} Transport API consumed by the engine.
  */
-export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponseBytes = 5 * 1024 * 1024 } = {}) {
+export function createTallyHttpTransport({
+  defaultTimeoutMs = 30000,
+  maxResponseBytes = 5 * 1024 * 1024,
+} = {}) {
   /**
    * Sends one XML document and returns the HTTP status, headers, and response body.
    *
@@ -43,51 +48,77 @@ export function createTallyHttpTransport({ defaultTimeoutMs = 30000, maxResponse
    */
   async function postXml(tally, xml, options = {}) {
     options.signal?.throwIfAborted();
-    if (typeof xml !== "string" || !xml.trim()) throw new Error("Tally XML request cannot be empty.");
+    if (typeof xml !== "string" || !xml.trim())
+      throw new Error("Tally XML request cannot be empty.");
     const url = resolveEndpoint(tally);
     const timeoutMs = Number(options.timeoutMs || tally.timeoutMs || defaultTimeoutMs);
     const transport = url.protocol === "https:" ? https : http;
 
     return new Promise((resolve, reject) => {
-      const request = transport.request(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/xml; charset=utf-8",
-          Accept: "application/xml, text/xml, */*",
-          "Content-Length": Buffer.byteLength(xml),
-          ...(options.headers || {}),
+      const request = transport.request(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/xml; charset=utf-8",
+            Accept: "application/xml, text/xml, */*",
+            "Content-Length": Buffer.byteLength(xml),
+            ...(options.headers || {}),
+          },
+          timeout: timeoutMs,
         },
-        timeout: timeoutMs,
-      }, (response) => {
-        const chunks = [];
-        let responseBytes = 0;
-        response.on("data", (chunk) => {
-          responseBytes += chunk.length;
-          if (responseBytes > maxResponseBytes) {
-            request.destroy(new Error(`Tally response exceeded ${maxResponseBytes} bytes.`));
-            return;
-          }
-          chunks.push(chunk);
-        });
-        response.on("end", () => resolve({
-          endpoint: url.toString(),
-          status: response.statusCode || 0,
-          headers: response.headers,
-          body: options.responseType === "buffer" ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8"),
-        }));
-      });
+        (response) => {
+          const chunks = [];
+          let responseBytes = 0;
+          response.on("data", (chunk) => {
+            responseBytes += chunk.length;
+            if (responseBytes > maxResponseBytes) {
+              request.destroy(new Error(`Tally response exceeded ${maxResponseBytes} bytes.`));
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.on("end", () =>
+            resolve({
+              endpoint: url.toString(),
+              status: response.statusCode || 0,
+              headers: response.headers,
+              body:
+                options.responseType === "buffer"
+                  ? Buffer.concat(chunks)
+                  : Buffer.concat(chunks).toString("utf8"),
+            }),
+          );
+        },
+      );
 
-      request.on("timeout", () => request.destroy(Object.assign(new Error(`Tally request timed out after ${timeoutMs}ms.`), { code: "TALLY_TIMEOUT" })));
+      request.on("timeout", () =>
+        request.destroy(
+          Object.assign(new Error(`Tally request timed out after ${timeoutMs}ms.`), {
+            code: "TALLY_TIMEOUT",
+          }),
+        ),
+      );
       const abort = () => request.destroy(new Error("Tally request cancelled."));
       options.signal?.addEventListener("abort", abort, { once: true });
       request.on("close", () => options.signal?.removeEventListener("abort", abort));
       request.on("error", (cause) => {
         const code = cause.code ? ` (${cause.code})` : "";
-        const unavailable = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH"].includes(cause.code);
-        reject(Object.assign(new Error(`Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`, { cause }), {
-          ...(unavailable ? { code: "TALLY_NOT_CONNECTED", httpStatus: 503 } : {}),
-          ...(cause.code === "TALLY_TIMEOUT" ? { code: "TALLY_TIMEOUT", httpStatus: 504 } : {}),
-        }));
+        const unavailable = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH"].includes(
+          cause.code,
+        );
+        reject(
+          Object.assign(
+            new Error(
+              `Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`,
+              { cause },
+            ),
+            {
+              ...(unavailable ? { code: "TALLY_NOT_CONNECTED", httpStatus: 503 } : {}),
+              ...(cause.code === "TALLY_TIMEOUT" ? { code: "TALLY_TIMEOUT", httpStatus: 504 } : {}),
+            },
+          ),
+        );
       });
       request.end(xml);
     });

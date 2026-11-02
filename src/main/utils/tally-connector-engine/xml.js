@@ -1,8 +1,8 @@
 export * from "./shared/requests/xml.js";
-export {escapeXml,buildImportEnvelope} from "./shared/utils/xmlHelpers.js";
+export { escapeXml, buildImportEnvelope } from "./shared/utils/xmlHelpers.js";
 export * from "./modules/companies/index.js";
-export {parseImportResponse} from "./shared/parsers/importResult.parser.js";
-export {parseVoucherNumber} from "./shared/parsers/voucherNumber.parser.js";
+export { parseImportResponse } from "./shared/parsers/importResult.parser.js";
+export { parseVoucherNumber } from "./shared/parsers/voucherNumber.parser.js";
 export * from "./modules/vouchers/sales-order/index.js";
 export * from "./modules/vouchers/sales/index.js";
 export * from "./modules/vouchers/purchase-order/index.js";

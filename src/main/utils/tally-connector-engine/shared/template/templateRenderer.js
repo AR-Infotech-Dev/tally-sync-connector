@@ -4,9 +4,10 @@ import { fileURLToPath } from "node:url";
 import Handlebars from "handlebars";
 
 // Protected builds bundle main into src/main/index.cjs and copy templates beside it.
-const templateRoot = typeof __dirname === "string"
-  ? path.join(__dirname, "utils/tally-connector-engine")
-  : fileURLToPath(new URL("../../", import.meta.url));
+const templateRoot =
+  typeof __dirname === "string"
+    ? path.join(__dirname, "utils/tally-connector-engine")
+    : fileURLToPath(new URL("../../", import.meta.url));
 const compiledTemplates = new Map();
 const handlebars = Handlebars.create();
 

@@ -7,15 +7,21 @@
     <VOUCHERNUMBER>{{{voucherNo}}}</VOUCHERNUMBER>
     {{#if isOrder}}<REFERENCE>{{{reference}}}</REFERENCE>{{/if}}
     <PARTYLEDGERNAME>{{{party}}}</PARTYLEDGERNAME>
-    {{#if partyDetails.gst_registration_type}}<GSTREGISTRATIONTYPE>{{{partyDetails.gst_registration_type}}}
+    {{#if partyDetails.gst_registration_type}}<GSTREGISTRATIONTYPE
+    >{{{partyDetails.gst_registration_type}}}
     </GSTREGISTRATIONTYPE>{{/if}}
     {{#if companyDetails.state}}<STATENAME>{{{companyDetails.state}}}</STATENAME>{{/if}}
-    {{#if partyDetails.country}}<COUNTRYOFRESIDENCE>{{{partyDetails.country}}}</COUNTRYOFRESIDENCE>{{/if}}
+    {{#if partyDetails.country}}<COUNTRYOFRESIDENCE
+    >{{{partyDetails.country}}}</COUNTRYOFRESIDENCE>{{/if}}
     {{#if placeOfSupply}}<PLACEOFSUPPLY>{{{placeOfSupply}}}</PLACEOFSUPPLY>{{/if}}
-    {{#if companyDetails.gst_registration}}<GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{{{companyDetails.gstin}}}">
+    {{#if companyDetails.gst_registration}}<GSTREGISTRATION
+      TAXTYPE="GST"
+      TAXREGISTRATION="{{{companyDetails.gstin}}}"
+    >
       {{{companyDetails.gst_registration}}}</GSTREGISTRATION>{{/if}}
     {{#if companyDetails.gstin}}<CMPGSTIN>{{{companyDetails.gstin}}}</CMPGSTIN>{{/if}}
-    {{#if companyDetails.gst_registration_type}}<CMPGSTREGISTRATIONTYPE>{{{companyDetails.gst_registration_type}}}
+    {{#if companyDetails.gst_registration_type}}<CMPGSTREGISTRATIONTYPE
+    >{{{companyDetails.gst_registration_type}}}
     </CMPGSTREGISTRATIONTYPE>{{/if}}
     {{#if companyDetails.state}}<CMPGSTSTATE>{{{companyDetails.state}}}</CMPGSTSTATE>{{/if}}
     <PARTYNAME>{{{buyerName}}}</PARTYNAME>
@@ -23,17 +29,21 @@
     <PARTYMAILINGNAME>{{{mailingName}}}</PARTYMAILINGNAME>
     {{#if partyDetails.pincode}}<PARTYPINCODE>{{{partyDetails.pincode}}}</PARTYPINCODE>{{/if}}
     {{#if partyDetails.state}}<STATENAME>{{{partyDetails.state}}}</STATENAME>{{/if}}
-    {{#if partyDetails.country}}<COUNTRYOFRESIDENCE>{{{partyDetails.country}}}</COUNTRYOFRESIDENCE>{{/if}}
+    {{#if partyDetails.country}}<COUNTRYOFRESIDENCE
+    >{{{partyDetails.country}}}</COUNTRYOFRESIDENCE>{{/if}}
     {{#if partyDetails.gstin}}<PARTYGSTIN>{{{partyDetails.gstin}}}</PARTYGSTIN>{{/if}}
-    {{#if partyDetails.gst_registration_type}}<GSTREGISTRATIONTYPE>{{{partyDetails.gst_registration_type}}}
+    {{#if partyDetails.gst_registration_type}}<GSTREGISTRATIONTYPE
+    >{{{partyDetails.gst_registration_type}}}
     </GSTREGISTRATIONTYPE>
     <VATDEALERTYPE>{{{partyDetails.gst_registration_type}}}</VATDEALERTYPE>{{/if}}
-    <ADDRESS.LIST TYPE="String">{{#each addresses}}<ADDRESS>{{{this}}}</ADDRESS>{{/each}}</ADDRESS.LIST>
+    <ADDRESS.LIST TYPE="String">{{#each addresses}}<ADDRESS
+      >{{{this}}}</ADDRESS>{{/each}}</ADDRESS.LIST>
     <BASICBASEPARTYNAME>{{{mailingName}}}</BASICBASEPARTYNAME>
     {{#if consignee.name}}<CONSIGNEEMAILINGNAME>{{{consignee.name}}}</CONSIGNEEMAILINGNAME>
     {{#if consignee.pincode}}<CONSIGNEEPINCODE>{{{consignee.pincode}}}</CONSIGNEEPINCODE>{{/if}}
     {{#if consignee.state}}<CONSIGNEESTATENAME>{{{consignee.state}}}</CONSIGNEESTATENAME>{{/if}}
-    {{#if consignee.country}}<CONSIGNEECOUNTRYNAME>{{{consignee.country}}}</CONSIGNEECOUNTRYNAME>{{/if}}
+    {{#if consignee.country}}<CONSIGNEECOUNTRYNAME
+    >{{{consignee.country}}}</CONSIGNEECOUNTRYNAME>{{/if}}
     {{/if}}
     <ISINVOICE>{{isInvoice}}</ISINVOICE>
     <PERSISTEDVIEW>{{voucherView}}</PERSISTEDVIEW>
@@ -56,12 +66,16 @@
         {{#if manufacturedOn}}<MFDON>{{manufacturedOn}}</MFDON>{{/if}}
         <GODOWNNAME>{{{godown}}}</GODOWNNAME>
         <BATCHNAME>{{{batchName}}}</BATCHNAME>
-        {{#if @root.isOrder}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{else}}<DESTINATIONGODOWNNAME>{{{godown}}}
+        {{#if @root.isOrder}}<ORDERNO>{{{orderNo}}}</ORDERNO>{{else}}<DESTINATIONGODOWNNAME
+        >{{{godown}}}
         </DESTINATIONGODOWNNAME>{{/if}}
         <AMOUNT>{{{amount}}}</AMOUNT>
         <ACTUALQTY>{{{quantity}}}</ACTUALQTY>
         <BILLEDQTY>{{{quantity}}}</BILLEDQTY>
-        {{#if dueDate}}<ORDERDUEDATE JD="{{dueDate.julianDay}}" P="{{dueDate.display}}">{{dueDate.display}}
+        {{#if dueDate}}<ORDERDUEDATE
+          JD="{{dueDate.julianDay}}"
+          P="{{dueDate.display}}"
+        >{{dueDate.display}}
         </ORDERDUEDATE>{{/if}}
         {{#if expiry}}<EXPIRYPERIOD>{{{expiry}}}</EXPIRYPERIOD>{{/if}}
       </BATCHALLOCATIONS.LIST>{{/if}}

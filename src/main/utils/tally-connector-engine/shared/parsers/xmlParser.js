@@ -11,6 +11,8 @@ export function decodeXml(value) {
 
 export function tagValue(xml, tag) {
   const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = String(xml || "").match(new RegExp(`<${safeTag}\\b[^>]*>([\\s\\S]*?)</${safeTag}>`, "i"));
+  const match = String(xml || "").match(
+    new RegExp(`<${safeTag}\\b[^>]*>([\\s\\S]*?)</${safeTag}>`, "i"),
+  );
   return match ? decodeXml(match[1].replace(/<[^>]*>/g, "").trim()) : "";
 }

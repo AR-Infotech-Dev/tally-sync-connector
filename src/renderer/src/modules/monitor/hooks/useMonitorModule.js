@@ -20,13 +20,31 @@ export function useMonitorModule() {
 
   useEffect(() => {
     let mounted = true;
-    loadRecentActivity().then((items) => { if (mounted) setActivity(items); }).catch(() => {});
+    loadRecentActivity()
+      .then((items) => {
+        if (mounted) setActivity(items);
+      })
+      .catch(() => {});
     const removeStatus = window.connector.onStatus((nextStatus) => setStatus(nextStatus));
-    const removeActivity = window.connector.onActivity((item) => setActivity((current) => [item, ...current].slice(0, 100)));
-    window.connector.getStatus().then((currentStatus) => { if (mounted) setStatus(currentStatus); }).catch(() => {});
-    return () => { mounted = false; removeStatus(); removeActivity(); };
+    const removeActivity = window.connector.onActivity((item) =>
+      setActivity((current) => [item, ...current].slice(0, 100)),
+    );
+    window.connector
+      .getStatus()
+      .then((currentStatus) => {
+        if (mounted) setStatus(currentStatus);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+      removeStatus();
+      removeActivity();
+    };
   }, []);
 
-  const clearActivity = async () => { await clearActivityLogs(); setActivity([]); };
+  const clearActivity = async () => {
+    await clearActivityLogs();
+    setActivity([]);
+  };
   return { status, setStatus, activity, clearActivity, ledgerSync };
 }

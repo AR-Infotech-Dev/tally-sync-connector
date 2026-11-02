@@ -1,4 +1,8 @@
-import { validateReceiptParty, validateReceiptPaymentLedger, validateReceiptAmount } from "./receipt.validator.js";
+import {
+  validateReceiptParty,
+  validateReceiptPaymentLedger,
+  validateReceiptAmount,
+} from "./receipt.validator.js";
 import { escapeXml, toTallyDate } from "../../../shared/utils/xmlHelpers.js";
 import { mapUdfFields } from "../../../shared/mappers/udfXml.js";
 
@@ -23,14 +27,32 @@ export function mapReceiptToTemplate({ companyName, receipt = {} } = {}) {
   const billType = header.bill_type || (billReference ? "Agst Ref" : "On Account");
 
   // Each posting is plain data; HBS renders the optional bill reference.
-  const partyPosting = {ledger:escapeXml(party),isParty:"Yes",positive:"No",amount:partyAmount,billReference:escapeXml(billReference),billType:escapeXml(billType)};
-  const cashPosting = {ledger:escapeXml(paymentLedger),isParty:"No",positive:"Yes",amount:paymentAmount,billReference:"",billType:""};
+  const partyPosting = {
+    ledger: escapeXml(party),
+    isParty: "Yes",
+    positive: "No",
+    amount: partyAmount,
+    billReference: escapeXml(billReference),
+    billType: escapeXml(billType),
+  };
+  const cashPosting = {
+    ledger: escapeXml(paymentLedger),
+    isParty: "No",
+    positive: "Yes",
+    amount: paymentAmount,
+    billReference: "",
+    billType: "",
+  };
   return {
-    companyName: company, template:"modules/vouchers/receipt/receipt.xml.hbs",
+    companyName: company,
+    template: "modules/vouchers/receipt/receipt.xml.hbs",
     context: {
-      date,voucherType:escapeXml(voucherType),voucherNo:escapeXml(voucherNo),party:escapeXml(party),
-      ledgerEntries:[cashPosting,partyPosting],
-      customFields:mapUdfFields(header.custom_fields || {}, undefined),
+      date,
+      voucherType: escapeXml(voucherType),
+      voucherNo: escapeXml(voucherNo),
+      party: escapeXml(party),
+      ledgerEntries: [cashPosting, partyPosting],
+      customFields: mapUdfFields(header.custom_fields || {}, undefined),
     },
   };
 }

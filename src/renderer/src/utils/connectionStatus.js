@@ -23,7 +23,8 @@ export function getConnectionPill(status = {}) {
   const registrationState = getRegistrationState(status);
   if (registrationState === "registered") return { label: "REGISTERED", tone: "registered" };
   if (registrationState === "failed") return { label: "REGISTRATION FAILED", tone: "error" };
-  if (registrationState === "pending" && status.socketConnected) return { label: "SOCKET CONNECTED · REGISTERING", tone: "connecting" };
+  if (registrationState === "pending" && status.socketConnected)
+    return { label: "SOCKET CONNECTED · REGISTERING", tone: "connecting" };
   if (status.state === "connecting") return { label: "CONNECTING TO SOCKET", tone: "connecting" };
   return { label: "SOCKET OFFLINE", tone: "disconnected" };
 }

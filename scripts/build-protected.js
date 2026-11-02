@@ -28,7 +28,7 @@ const obfuscationOptions = {
   splitStrings: true,
   splitStringsChunkLength: 8,
   selfDefending: true,
-  disableConsoleOutput: true,
+  disableConsoleOutput: false,
 };
 
 assertInside(projectRoot, stageDir);
@@ -39,6 +39,7 @@ fs.mkdirSync(path.join(stageDir, "src/preload"), { recursive: true });
 await bundleAndObfuscateMain();
 await bundleAndObfuscatePreload();
 copyProtectedRenderer();
+copyProtectedAssets();
 copyVoucherTemplates();
 writePackagedManifest();
 validateStage();
@@ -46,7 +47,12 @@ runElectronBuilder();
 const installerPath = publishSetup();
 if (releaseConfig) {
   try {
-    const result = await uploadRelease({ installerPath, version: packageConfig.version, architecture, config: releaseConfig });
+    const result = await uploadRelease({
+      installerPath,
+      version: packageConfig.version,
+      architecture,
+      config: releaseConfig,
+    });
     console.info(`Published Connector ${result.release.version} (${result.release.architecture}).`);
     console.info(`Download: ${result.downloadUrl}`);
   } catch (error) {
@@ -54,7 +60,9 @@ if (releaseConfig) {
     process.exitCode = 1;
   }
 } else {
-  console.info("Server upload skipped. Set CONNECTOR_RELEASE_SERVER_URL and CONNECTOR_RELEASE_TOKEN in .env.release to publish builds automatically.");
+  console.info(
+    "Server upload skipped. Set CONNECTOR_RELEASE_SERVER_URL and CONNECTOR_RELEASE_TOKEN in .env.release to publish builds automatically.",
+  );
 }
 
 async function bundleAndObfuscateMain() {
@@ -108,6 +116,13 @@ function copyProtectedRenderer() {
   }
 }
 
+function copyProtectedAssets() {
+  const sourceDir = path.join(projectRoot, "public/assets");
+  const targetDir = path.join(stageDir, "public/assets");
+  if (!fs.existsSync(sourceDir)) throw new Error("Connector icon assets are missing.");
+  fs.cpSync(sourceDir, targetDir, { recursive: true });
+}
+
 function copyVoucherTemplates() {
   const relativeRoot = "src/main/utils/tally-connector-engine";
   const sourceRoot = path.join(projectRoot, relativeRoot);
@@ -119,10 +134,9 @@ function copyVoucherTemplates() {
 }
 
 function writePackagedManifest() {
-  const installedElectron = JSON.parse(fs.readFileSync(
-    path.join(projectRoot, "node_modules/electron/package.json"),
-    "utf8",
-  )).version;
+  const installedElectron = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, "node_modules/electron/package.json"), "utf8"),
+  ).version;
   const manifest = {
     name: packageConfig.name,
     version: packageConfig.version,
@@ -134,7 +148,14 @@ function writePackagedManifest() {
     devDependencies: { electron: installedElectron },
     build: {
       ...packageConfig.build,
-      files: ["src/main/index.cjs", "src/main/utils/tally-connector-engine/**/*.hbs", "src/preload/index.cjs", "dist/renderer/**/*", "package.json"],
+      files: [
+        "src/main/index.cjs",
+        "src/main/utils/tally-connector-engine/**/*.hbs",
+        "src/preload/index.cjs",
+        "dist/renderer/**/*",
+        "public/assets/**/*",
+        "package.json",
+      ],
       asar: true,
     },
   };
@@ -152,18 +173,36 @@ function obfuscateFile(sourceFile, outputFile, target) {
 }
 
 function validateStage() {
-  for (const voucher of ["sales-order", "sales", "purchase-order", "purchase", "receipt", "payment"]) {
-    const template = path.join(stageDir, "src/main/utils/tally-connector-engine/modules/vouchers", voucher, `${voucher}.xml.hbs`);
+  for (const voucher of [
+    "sales-order",
+    "sales",
+    "purchase-order",
+    "purchase",
+    "receipt",
+    "payment",
+  ]) {
+    const template = path.join(
+      stageDir,
+      "src/main/utils/tally-connector-engine/modules/vouchers",
+      voucher,
+      `${voucher}.xml.hbs`,
+    );
     if (!fs.existsSync(template)) throw new Error(`Missing packaged voucher template: ${voucher}`);
   }
   const mainFile = path.join(stageDir, "src/main/index.cjs");
   const preloadFile = path.join(stageDir, "src/preload/index.cjs");
   for (const file of [mainFile, preloadFile]) {
-    const check = spawnSync(process.execPath, ["--check", file], { stdio: "inherit", shell: false });
-    if (check.status !== 0) throw new Error(`Protected bundle syntax check failed: ${path.relative(stageDir, file)}`);
+    const check = spawnSync(process.execPath, ["--check", file], {
+      stdio: "inherit",
+      shell: false,
+    });
+    if (check.status !== 0)
+      throw new Error(`Protected bundle syntax check failed: ${path.relative(stageDir, file)}`);
   }
 
-  const allFiles = listFiles(stageDir).map((file) => path.relative(stageDir, file).replace(/\\/g, "/"));
+  const allFiles = listFiles(stageDir).map((file) =>
+    path.relative(stageDir, file).replace(/\\/g, "/"),
+  );
   if (allFiles.some((file) => file.endsWith(".map") || file.endsWith(".raw"))) {
     throw new Error("Protected staging output must not contain source maps or raw bundles.");
   }
@@ -171,13 +210,19 @@ function validateStage() {
 
 function runElectronBuilder() {
   const builderCli = path.join(projectRoot, "node_modules/electron-builder/cli.js");
-  if (!fs.existsSync(builderCli)) throw new Error("electron-builder is missing. Install project dependencies first.");
-  const result = spawnSync(process.execPath, [builderCli, "--projectDir", stageDir, "--win", "nsis", `--${architecture}`], {
-    cwd: projectRoot,
-    stdio: "inherit",
-    shell: false,
-  });
-  if (result.status !== 0) throw new Error("electron-builder failed for the protected Connector build.");
+  if (!fs.existsSync(builderCli))
+    throw new Error("electron-builder is missing. Install project dependencies first.");
+  const result = spawnSync(
+    process.execPath,
+    [builderCli, "--projectDir", stageDir, "--win", "nsis", `--${architecture}`],
+    {
+      cwd: projectRoot,
+      stdio: "inherit",
+      shell: false,
+    },
+  );
+  if (result.status !== 0)
+    throw new Error("electron-builder failed for the protected Connector build.");
 }
 
 function publishSetup() {
@@ -188,7 +233,8 @@ function publishSetup() {
   );
   const releaseDir = path.join(projectRoot, "release");
   const finalInstaller = path.join(releaseDir, path.basename(stagedInstaller));
-  if (!fs.existsSync(stagedInstaller)) throw new Error("Protected setup executable was not created.");
+  if (!fs.existsSync(stagedInstaller))
+    throw new Error("Protected setup executable was not created.");
   fs.mkdirSync(releaseDir, { recursive: true });
   fs.copyFileSync(stagedInstaller, finalInstaller);
   console.info(`Protected setup executable: ${path.relative(projectRoot, finalInstaller)}`);

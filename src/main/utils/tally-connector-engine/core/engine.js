@@ -1,10 +1,42 @@
 import { createTallyHttpTransport } from "../transport/httpTransport.js";
 import { buildSalesInvoicePdfRequest } from "../modules/vouchers/sales/sales.pdf.js";
-import { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml, buildSalesVoucherXml, buildVoucherLookupRequest, escapeXml, parseCompanyList, parseImportResponse, parseVoucherNumber } from "../xml.js";
+import {
+  buildCollectionRequest,
+  buildCompanyListRequest,
+  buildImportEnvelope,
+  buildLedgerMasterImport,
+  buildPaymentVoucherXml,
+  buildPurchaseOrderXml,
+  buildPurchaseVoucherXml,
+  buildReceiptVoucherXml,
+  buildSalesOrderXml,
+  buildSalesVoucherXml,
+  buildVoucherLookupRequest,
+  escapeXml,
+  parseCompanyList,
+  parseImportResponse,
+  parseVoucherNumber,
+} from "../xml.js";
 
 export { createTallyHttpTransport } from "../transport/httpTransport.js";
 export { buildSalesInvoicePdfRequest } from "../modules/vouchers/sales/sales.pdf.js";
-export { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, buildLedgerMasterImport, buildPaymentVoucherXml, buildPurchaseOrderXml, buildPurchaseVoucherXml, buildReceiptVoucherXml, buildSalesOrderXml, buildSalesVoucherXml, buildVoucherLookupRequest, escapeXml, parseCompanyList, parseImportResponse, parseVoucherNumber } from "../xml.js";
+export {
+  buildCollectionRequest,
+  buildCompanyListRequest,
+  buildImportEnvelope,
+  buildLedgerMasterImport,
+  buildPaymentVoucherXml,
+  buildPurchaseOrderXml,
+  buildPurchaseVoucherXml,
+  buildReceiptVoucherXml,
+  buildSalesOrderXml,
+  buildSalesVoucherXml,
+  buildVoucherLookupRequest,
+  escapeXml,
+  parseCompanyList,
+  parseImportResponse,
+  parseVoucherNumber,
+} from "../xml.js";
 
 /**
  * Creates an isolated Tally engine instance with its own plugin registry.
@@ -17,7 +49,10 @@ export { buildCollectionRequest, buildCompanyListRequest, buildImportEnvelope, b
  * @returns {object} Engine API: plugin registration, connectivity, XML request,
  *   collection export, and plugin execution methods.
  */
-export function createTallyConnectorEngine({ transport = createTallyHttpTransport(), plugins = [] } = {}) {
+export function createTallyConnectorEngine({
+  transport = createTallyHttpTransport(),
+  plugins = [],
+} = {}) {
   const pluginRegistry = new Map();
 
   /**
@@ -37,7 +72,8 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
     if (!plugin.operations || typeof plugin.operations !== "object") {
       throw new TypeError(`Plugin '${plugin.id}' must define an operations object.`);
     }
-    if (pluginRegistry.has(plugin.id)) throw new Error(`Tally plugin '${plugin.id}' is already registered.`);
+    if (pluginRegistry.has(plugin.id))
+      throw new Error(`Tally plugin '${plugin.id}' is already registered.`);
     pluginRegistry.set(plugin.id, Object.freeze({ ...plugin }));
     return () => pluginRegistry.delete(plugin.id);
   }
@@ -96,7 +132,12 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
   async function exportCollection(tally, definition, options) {
     const request = buildCollectionRequest(definition);
     const response = await transport.postXml(tally, request, options);
-    return { ok: response.status >= 200 && response.status < 300, endpoint: response.endpoint, httpStatus: response.status, raw: response.body };
+    return {
+      ok: response.status >= 200 && response.status < 300,
+      endpoint: response.endpoint,
+      httpStatus: response.status,
+      raw: response.body,
+    };
   }
 
   /** Reads the Tally-assigned voucher number by the LASTVCHID from an import response. */
@@ -131,7 +172,10 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
     if (!operation || typeof operation.buildRequest !== "function") {
       throw new Error(`Tally plugin '${pluginId}' does not implement '${operationName}'.`);
     }
-    const built = await operation.buildRequest({ ...context, helpers: { buildImportEnvelope, escapeXml, parseImportResponse } });
+    const built = await operation.buildRequest({
+      ...context,
+      helpers: { buildImportEnvelope, escapeXml, parseImportResponse },
+    });
     const xml = typeof built === "string" ? built : built?.xml;
     if (!xml) throw new Error(`Tally plugin '${pluginId}' returned no XML for '${operationName}'.`);
     const result = await sendXml(context.tally, xml, built?.transportOptions);
@@ -158,4 +202,3 @@ export function createTallyConnectorEngine({ transport = createTallyHttpTranspor
     executePlugin,
   });
 }
-

@@ -1,4 +1,4 @@
-import {decodeXml,tagValue} from "./xmlParser.js";
+import { decodeXml, tagValue } from "./xmlParser.js";
 
 export function parseImportResponse(xml) {
   const value = (tag) => Number(tagValue(xml, tag) || 0);
@@ -24,7 +24,11 @@ export function parseImportResponse(xml) {
   // voucher push; callers must treat a no-op import as a failed transaction.
   const changedRecords = summary.created + summary.altered;
   return {
-    ok: summary.errors === 0 && summary.exceptions === 0 && lineErrors.length === 0 && changedRecords > 0,
+    ok:
+      summary.errors === 0 &&
+      summary.exceptions === 0 &&
+      lineErrors.length === 0 &&
+      changedRecords > 0,
     summary,
     raw: String(xml || ""),
   };

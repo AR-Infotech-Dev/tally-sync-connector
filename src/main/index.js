@@ -19,7 +19,9 @@ let isQuitting = false;
 let configStore;
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) app.quit();
-app.on("second-instance", () => { if (app.isReady()) openWindow(); });
+app.on("second-instance", () => {
+  if (app.isReady()) openWindow();
+});
 
 function openWindow() {
   if (!mainWindow) return createWindow();
@@ -29,47 +31,80 @@ function openWindow() {
 }
 
 function createSystemTray() {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="8" fill="#2862d7"/><path d="M8 12h12l-3-3m3 3-3 3M24 20H12l3 3m-3-3 3-3" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  const icon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="8" fill="#2862d7"/><path d="M8 12h12l-3-3m3 3-3 3M24 20H12l3 3m-3-3 3-3" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const icon = nativeImage.createFromDataURL(
+    `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+  );
   connectorTray = new Tray(icon);
   connectorTray.setToolTip("Tally Sync Connector is running");
-  connectorTray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Open Connector", click: openWindow },
-    { type: "separator" },
-    { label: "Quit Connector", click: () => { isQuitting = true; connectorController?.disconnect(); app.quit(); } },
-  ]));
+  connectorTray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Open Connector", click: openWindow },
+      { type: "separator" },
+      {
+        label: "Quit Connector",
+        click: () => {
+          isQuitting = true;
+          connectorController?.disconnect();
+          app.quit();
+        },
+      },
+    ]),
+  );
   connectorTray.on("double-click", openWindow);
 }
 
 function applySystemSettings(config) {
-  app.setLoginItemSettings({ openAtLogin: Boolean(config.startWithWindows), args: ["--background"] });
-  connectorTray?.setToolTip(config.minimizeToTray ? "Tally Sync Connector is running in the background" : "Tally Sync Connector");
+  app.setLoginItemSettings({
+    openAtLogin: Boolean(config.startWithWindows),
+    args: ["--background"],
+  });
+  connectorTray?.setToolTip(
+    config.minimizeToTray
+      ? "Tally Sync Connector is running in the background"
+      : "Tally Sync Connector",
+  );
 }
 
 function createWindow() {
+  const iconPath = app.isPackaged
+    ? path.join(app.getAppPath(), "public/assets/flowups-connector.ico")
+    : path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../public/assets/flowups-connector.ico",
+      );
   mainWindow = new BrowserWindow({
     width: 1460,
     height: 920,
     minWidth: 1080,
     minHeight: 700,
     show: false,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(here, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
-  Menu.setApplicationMenu(null)
+  Menu.setApplicationMenu(null);
   if (app.isPackaged) mainWindow.loadFile(path.join(here, "../../dist/renderer/index.html"));
-  else mainWindow.loadURL("http://localhost:5173");
-  mainWindow.once("ready-to-show", () => { if (!process.argv.includes("--background")) mainWindow?.show(); });
+  else {
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+  }
+  mainWindow.once("ready-to-show", () => {
+    if (!process.argv.includes("--background")) mainWindow?.show();
+  });
   mainWindow.on("close", (event) => {
     if (!isQuitting && configStore?.load().minimizeToTray) {
       event.preventDefault();
       mainWindow.hide();
     }
   });
-  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
@@ -104,4 +139,7 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => { isQuitting = true; connectorController?.disconnect(); });
+app.on("before-quit", () => {
+  isQuitting = true;
+  connectorController?.disconnect();
+});

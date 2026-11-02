@@ -7,7 +7,7 @@ export function registerIpcRoutes(controller) {
   ipcMain.handle("config:save", (_event, config) => controller.saveConfig(config));
   ipcMain.handle("connector:connect", () => controller.connect());
   ipcMain.handle("client:register", (_event, payload) => controller.registerClient(payload));
-  ipcMain.handle('client:activate', (_event, payload) => controller.activateConnector(payload));
+  ipcMain.handle("client:activate", (_event, payload) => controller.activateConnector(payload));
   ipcMain.handle("tally:test-connection", () => controller.testTallyConnection());
   ipcMain.handle("activity:list", (_event, options) => controller.getActivity(options));
   ipcMain.handle("activity:clear", () => controller.clearActivity());

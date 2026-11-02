@@ -9,7 +9,10 @@ const architecture = args.includes("--ia32") ? "ia32" : args.includes("--arm64")
 
 try {
   const config = loadReleaseConfig({ projectRoot });
-  if (!config) throw new Error("Set CONNECTOR_RELEASE_SERVER_URL and CONNECTOR_RELEASE_TOKEN in Connector/.env.release first.");
+  if (!config)
+    throw new Error(
+      "Set CONNECTOR_RELEASE_SERVER_URL and CONNECTOR_RELEASE_TOKEN in Connector/.env.release first.",
+    );
   const packageConfig = JSON.parse(readFileSync(path.join(projectRoot, "package.json"), "utf8"));
   const result = await uploadRelease({
     installerPath: currentInstallerPath(projectRoot, packageConfig, architecture),

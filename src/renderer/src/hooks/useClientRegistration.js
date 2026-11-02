@@ -21,8 +21,10 @@ export function useClientRegistration({ serverUrl, onRegistered }) {
     const nextErrors = {};
     if (!formData.name.trim()) nextErrors.name = "Enter your name.";
     if (!formData.companyName.trim()) nextErrors.companyName = "Enter your company name.";
-    if (!/^\S+@\S+\.\S+$/.test(formData.email.trim())) nextErrors.email = "Enter a valid email address.";
-    if (!formData.tallyLicenseNo.trim()) nextErrors.tallyLicenseNo = "Enter your Tally license number.";
+    if (!/^\S+@\S+\.\S+$/.test(formData.email.trim()))
+      nextErrors.email = "Enter a valid email address.";
+    if (!formData.tallyLicenseNo.trim())
+      nextErrors.tallyLicenseNo = "Enter your Tally license number.";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 

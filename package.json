@@ -1,9 +1,9 @@
 {
   "name": "tally-sync-connector",
-  "version": "0.1.3",
+  "version": "0.1.8",
   "private": true,
   "description": "Flowups Tally Sync Connector desktop application",
-  "author": "AR Infotech",
+  "author": "Flowups Technologies Pvt. Ltd.",
   "type": "module",
   "main": "src/main/index.js",
   "scripts": {
@@ -11,6 +11,8 @@
     "dev:ui": "vite --config vite.config.js",
     "dev:electron": "wait-on http://127.0.0.1:5173 && nodemon --watch src/main --watch src/preload --ext js,cjs --exec electron .",
     "build": "vite build --config vite.config.js",
+    "format": "prettier --write . && node scripts/format-xml-templates.js --write",
+    "format:check": "prettier --check . && node scripts/format-xml-templates.js --check",
     "package:win": "npm run build && node scripts/build-protected.js --x64",
     "release:upload": "node scripts/release-upload.js --x64",
     "start": "npm run dev"
@@ -24,6 +26,7 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@prettier/plugin-xml": "3.4.2",
     "@vitejs/plugin-react": "^4.6.0",
     "concurrently": "^9.2.0",
     "electron": "^37.0.0",
@@ -31,6 +34,7 @@
     "esbuild": "^0.28.2",
     "javascript-obfuscator": "^5.9.0",
     "nodemon": "^3.1.10",
+    "prettier": "3.9.10",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
   },
@@ -45,10 +49,12 @@
       "src/main/**/*",
       "src/preload/**/*",
       "dist/renderer/**/*",
+      "public/**/*",
       "package.json"
     ],
     "artifactName": "${productName} Setup ${version} ${arch}.${ext}",
     "win": {
+      "icon": "public/assets/flowups-connector.ico",
       "target": [
         {
           "target": "nsis",
@@ -64,7 +70,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Flowups Tally Sync Connector"
+      "shortcutName": "Flowups Tally Sync Connector",
+      "installerIcon": "public/assets/flowups-connector.ico",
+      "uninstallerIcon": "public/assets/flowups-connector.ico",
+      "installerHeaderIcon": "public/assets/flowups-connector.ico"
     }
   }
 }

@@ -4,9 +4,11 @@ export function validateReceiptParty({ party }) {
 }
 
 export function validateReceiptPaymentLedger({ paymentLedger, label }) {
-  if (!paymentLedger) throw new TypeError(`${label} voucher requires payment.ledger_name (Cash or Bank ledger).`);
+  if (!paymentLedger)
+    throw new TypeError(`${label} voucher requires payment.ledger_name (Cash or Bank ledger).`);
 }
 
 export function validateReceiptAmount({ label, amount }) {
-  if (!Number.isFinite(amount) || amount <= 0) throw new TypeError(`${label} voucher amount must be greater than zero.`);
+  if (!Number.isFinite(amount) || amount <= 0)
+    throw new TypeError(`${label} voucher amount must be greater than zero.`);
 }

@@ -1,4 +1,8 @@
-import { validatePaymentParty, validatePaymentPaymentLedger, validatePaymentAmount } from "./payment.validator.js";
+import {
+  validatePaymentParty,
+  validatePaymentPaymentLedger,
+  validatePaymentAmount,
+} from "./payment.validator.js";
 import { escapeXml, toTallyDate } from "../../../shared/utils/xmlHelpers.js";
 import { mapUdfFields } from "../../../shared/mappers/udfXml.js";
 
@@ -24,14 +28,35 @@ export function mapPaymentToTemplate({ companyName, payment = {} } = {}) {
   const billType = header.bill_type || (billReference ? "Agst Ref" : "On Account");
 
   // Each posting is plain data; HBS renders the optional bill reference.
-  const partyPosting = {ledger:escapeXml(party),isParty:"Yes",positive:"Yes",amount:partyAmount,billReference:escapeXml(billReference),billType:escapeXml(billType)};
-  const cashPosting = {ledger:escapeXml(paymentLedger),isParty:"No",positive:"No",amount:paymentAmount,billReference:"",billType:""};
+  const partyPosting = {
+    ledger: escapeXml(party),
+    isParty: "Yes",
+    positive: "Yes",
+    amount: partyAmount,
+    billReference: escapeXml(billReference),
+    billType: escapeXml(billType),
+  };
+  const cashPosting = {
+    ledger: escapeXml(paymentLedger),
+    isParty: "No",
+    positive: "No",
+    amount: paymentAmount,
+    billReference: "",
+    billType: "",
+  };
   return {
-    companyName: company, template:"modules/vouchers/payment/payment.xml.hbs",
+    companyName: company,
+    template: "modules/vouchers/payment/payment.xml.hbs",
     context: {
-      date,voucherType:escapeXml(voucherType),voucherNo:escapeXml(voucherNo),party:escapeXml(party),
-      ledgerEntries:[partyPosting,cashPosting],
-      customFields:mapUdfFields(header.custom_fields || {}, "Use a Tally UDF field name and scalar value."),
+      date,
+      voucherType: escapeXml(voucherType),
+      voucherNo: escapeXml(voucherNo),
+      party: escapeXml(party),
+      ledgerEntries: [partyPosting, cashPosting],
+      customFields: mapUdfFields(
+        header.custom_fields || {},
+        "Use a Tally UDF field name and scalar value.",
+      ),
     },
   };
 }
