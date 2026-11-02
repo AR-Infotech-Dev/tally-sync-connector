@@ -1,0 +1,19 @@
+node_modules/
+.git/
+.codex-tmp/
+.cache/
+dist/
+release/
+build/
+storage/
+.env
+.env.*
+package-lock.json
+**/*.md
+**/*.xml
+# Format Tally templates with scripts/format-xml-templates.js to preserve XML tag case.
+**/*.xml.hbs
+**/*.png
+**/*.ico
+**/*.zip
+**/*.exe
