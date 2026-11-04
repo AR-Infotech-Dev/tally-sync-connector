@@ -3,6 +3,7 @@ import { getRegistrationState } from "../utils/connectionStatus.js";
 
 const navItems = [
   { id: "monitor", label: "Monitor", icon: "monitor" },
+  { id: "sync", label: "Sync", icon: "refresh" },
   { id: "settings", label: "Settings", icon: "settings" },
   { id: "logs", label: "Logs", icon: "logs" },
 ];

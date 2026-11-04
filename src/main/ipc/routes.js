@@ -4,6 +4,8 @@ export function registerIpcRoutes(controller) {
   ipcMain.handle("config:load", () => controller.getConfig());
   ipcMain.handle("connector:status:get", () => controller.getStatus());
   ipcMain.handle("ledger-sync:status:get", () => controller.getLedgerSyncStatus());
+  ipcMain.handle("ledger-sync:start", (_event, options) => controller.startLocalSync(options));
+  ipcMain.handle("ledger-sync:pause", () => controller.pauseLocalSync());
   ipcMain.handle("config:save", (_event, config) => controller.saveConfig(config));
   ipcMain.handle("connector:connect", () => controller.connect());
   ipcMain.handle("client:register", (_event, payload) => controller.registerClient(payload));

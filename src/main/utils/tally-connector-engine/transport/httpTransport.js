@@ -55,6 +55,30 @@ export function createTallyHttpTransport({
     const transport = url.protocol === "https:" ? https : http;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const fail = (cause) => {
+        if (settled) return;
+        settled = true;
+        const code = cause.code ? ` (${cause.code})` : "";
+        const unavailable = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH"].includes(
+          cause.code,
+        );
+        reject(
+          Object.assign(
+            new Error(
+              `Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`,
+              { cause },
+            ),
+            {
+              ...(unavailable ? { code: "TALLY_NOT_CONNECTED", httpStatus: 503 } : {}),
+              ...(cause.code === "TALLY_TIMEOUT" ? { code: "TALLY_TIMEOUT", httpStatus: 504 } : {}),
+              ...(cause.code === "TALLY_RESPONSE_TOO_LARGE"
+                ? { code: cause.code, httpStatus: 502, maxResponseBytes: cause.maxResponseBytes }
+                : {}),
+            },
+          ),
+        );
+      };
       const request = transport.request(
         url,
         {
@@ -70,15 +94,30 @@ export function createTallyHttpTransport({
         (response) => {
           const chunks = [];
           let responseBytes = 0;
+          response.on("error", fail);
+          response.on("aborted", () =>
+            fail(new Error("Tally response was interrupted before completion.")),
+          );
           response.on("data", (chunk) => {
+            if (settled) return;
             responseBytes += chunk.length;
             if (responseBytes > maxResponseBytes) {
-              request.destroy(new Error(`Tally response exceeded ${maxResponseBytes} bytes.`));
+              chunks.length = 0;
+              fail(
+                Object.assign(new Error(`Tally response exceeded ${maxResponseBytes} bytes.`), {
+                  code: "TALLY_RESPONSE_TOO_LARGE",
+                  maxResponseBytes,
+                }),
+              );
+              response.destroy();
+              request.destroy();
               return;
             }
             chunks.push(chunk);
           });
-          response.on("end", () =>
+          response.on("end", () => {
+            if (settled) return;
+            settled = true;
             resolve({
               endpoint: url.toString(),
               status: response.statusCode || 0,
@@ -87,39 +126,26 @@ export function createTallyHttpTransport({
                 options.responseType === "buffer"
                   ? Buffer.concat(chunks)
                   : Buffer.concat(chunks).toString("utf8"),
-            }),
-          );
+            });
+          });
         },
       );
 
-      request.on("timeout", () =>
-        request.destroy(
+      request.on("timeout", () => {
+        fail(
           Object.assign(new Error(`Tally request timed out after ${timeoutMs}ms.`), {
             code: "TALLY_TIMEOUT",
           }),
-        ),
-      );
-      const abort = () => request.destroy(new Error("Tally request cancelled."));
+        );
+        request.destroy();
+      });
+      const abort = () => {
+        fail(new Error("Tally request cancelled."));
+        request.destroy();
+      };
       options.signal?.addEventListener("abort", abort, { once: true });
       request.on("close", () => options.signal?.removeEventListener("abort", abort));
-      request.on("error", (cause) => {
-        const code = cause.code ? ` (${cause.code})` : "";
-        const unavailable = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH"].includes(
-          cause.code,
-        );
-        reject(
-          Object.assign(
-            new Error(
-              `Could not send the request to Tally at ${url.origin}${code}: ${cause.message}`,
-              { cause },
-            ),
-            {
-              ...(unavailable ? { code: "TALLY_NOT_CONNECTED", httpStatus: 503 } : {}),
-              ...(cause.code === "TALLY_TIMEOUT" ? { code: "TALLY_TIMEOUT", httpStatus: 504 } : {}),
-            },
-          ),
-        );
-      });
+      request.on("error", fail);
       request.end(xml);
     });
   }

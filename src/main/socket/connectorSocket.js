@@ -8,7 +8,7 @@ import {
   buildSalesOrderObjectRequest,
   parseSalesOrderObjectResponse,
 } from "../utils/tally-connector-engine/modules/vouchers/sales-order/sales-order.lookup.js";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { CONNECTOR_EVENTS as EVENTS } from "./events.js";
@@ -41,7 +41,7 @@ import { createTallyHttpTransport } from "../utils/tally-connector-engine/transp
 import { createTallyConnectorEngine } from "../utils/tally-connector-engine/client.js";
 import { registerTallyAvailabilityCheck } from "../services/tallyAvailability.service.js";
 import { tallyFailureResult } from "../utils/tallyFailure.js";
-import { companyNameKey } from "../utils/companyName.js";
+import { createCompanyAccess } from "../services/companyAccess.service.js";
 
 export function createConnectorSocket({
   config,
@@ -72,43 +72,50 @@ export function createConnectorSocket({
     reconnectionDelayMax: 15_000,
     timeout: 20_000,
   });
-  const tallyTransport = createTallyHttpTransport();
+  const companyAccess = createCompanyAccess(config);
   registerTallyAvailabilityCheck(socket, config);
   const recordConnectionActivity = (status, message) =>
     onActivity?.({ status, message, at: new Date().toISOString() });
 
+  async function companySnapshot() {
+    const open = await companyAccess.list();
+    const cached = ledgerSync?.listCompanies?.(config) || [];
+    return open.map((row) => ({
+      tally_guid: row.tally_guid || row.guid,
+      company_key: row.company_key || row.guid,
+      company_number: row.company_number || "",
+      data_path: row.data_path || "",
+      company_name: row.name,
+      status: "active",
+      last_synced_at: cached.find((item) => item.company_key === row.guid)?.last_synced_at || null,
+      sync_status:
+        cached.find((item) => item.company_key === row.guid)?.sync_status || "not_synced",
+    }));
+  }
+  socket.publishCompanies = async () => {
+    try {
+      const companies = await companySnapshot();
+      return await new Promise((resolve, reject) => {
+        socket.timeout(10000).emit("company:snapshot", { companies }, (error, result) => {
+          if (error || !result?.success)
+            return reject(
+              new Error(result?.message || "Company list could not be saved on Server."),
+            );
+          resolve(result.companies || []);
+        });
+      });
+    } catch (error) {
+      recordConnectionActivity("warn", error.message);
+      return [];
+    }
+  };
   socket.on(EVENTS.companyList, async (_payload = {}, acknowledge = () => {}) => {
     try {
-      const result = await createTallyConnectorEngine().testConnection({
-        url: config.tallyUrl,
-        timeoutMs: (Number(config.requestTimeoutSeconds) || 30) * 1000,
-      });
-      const cached = ledgerSync?.listCompanies?.(config) || [];
-      const companies = (result.companies || []).map((company) => {
-        const existing = cached.find(
-          (item) =>
-            item.tally_guid === company.guid ||
-            companyNameKey(item.company_name) === companyNameKey(company.name),
-        );
-        return (
-          existing || {
-            company_id: `COMP_${createHash("sha256")
-              .update(`${config.clientId}:${company.guid || company.name}`)
-              .digest("hex")
-              .slice(0, 20)
-              .toUpperCase()}`,
-            company_name: company.name,
-            tally_guid: company.guid || null,
-            status: "not_synced",
-            last_synced_at: null,
-          }
-        );
-      });
-      acknowledge({ success: true, companies });
+      acknowledge({ success: true, companies: await companySnapshot() });
     } catch (error) {
       acknowledge({
         success: false,
-        code: "COMPANY_LIST_FAILED",
+        code: error.code || "COMPANY_LIST_FAILED",
         message: error.message,
       });
     }
@@ -196,7 +203,7 @@ export function createConnectorSocket({
     return candidates;
   }
 
-  function resolvePartyDealerCode(voucher, company, transactionType) {
+  function resolvePartyDealerCode(voucher, company, transactionType, companyGuid) {
     const party = voucher.party || {};
     const dealerCode = party.dealer_code || voucher.dealer_code || voucher.party_dealer_code;
     if (!dealerCode) return voucher;
@@ -207,6 +214,7 @@ export function createConnectorSocket({
       ledgerName = ledgerSync.resolveLedger(config, {
         company,
         dealer_code: dealerCode,
+        company_guid: companyGuid,
       }).ledger_name;
     } catch (error) {
       const ledgerNameFallback = party.ledger_name || voucher.party_ledger || voucher.party_name;
@@ -235,28 +243,6 @@ export function createConnectorSocket({
       `Dealer code '${dealerCode}' resolved to ledger '${ledgerName}' for ${transactionType}.`,
     );
     return next;
-  }
-
-  async function assertCurrentTallyCompany(companyName, timeoutMs) {
-    const xml = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>Flowups Current Company</ID></HEADER><BODY><DESC><STATICVARIABLES/><TDL><TDLMESSAGE><OBJECT NAME="FlowupsCurrentCompany"><LOCALFORMULA>CurrentCompany:##SVCURRENTCOMPANY</LOCALFORMULA></OBJECT><COLLECTION NAME="Flowups Current Company"><OBJECTS>FlowupsCurrentCompany</OBJECTS><FETCH>CurrentCompany</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>`;
-    const response = await tallyTransport.postXml({ url: config.tallyUrl }, xml, { timeoutMs });
-    const current = String(response.body || "")
-      .match(/<CURRENTCOMPANY\b[^>]*>([\s\S]*?)<\/CURRENTCOMPANY>/i)?.[1]
-      ?.replace(/<[^>]*>/g, " ")
-      .trim();
-    if (!current)
-      throw Object.assign(
-        new Error("Could not determine the currently selected company in Tally."),
-        { httpStatus: 409, code: "TALLY_CURRENT_COMPANY_UNAVAILABLE" },
-      );
-    if (companyNameKey(current) !== companyNameKey(companyName)) {
-      throw Object.assign(
-        new Error(
-          `Company '${companyName}' is not the currently selected company in Tally. Tally currently has '${current}' open.`,
-        ),
-        { httpStatus: 409, code: "COMPANY_NOT_OPEN" },
-      );
-    }
   }
 
   function findMissingLedgers(errors = []) {
@@ -321,6 +307,8 @@ export function createConnectorSocket({
     tally,
     xml,
     companyName,
+    companyId,
+    companyGuid,
     voucherData,
     transactionType,
     timeoutMs,
@@ -332,6 +320,11 @@ export function createConnectorSocket({
 
     // Retry only after creating a missing ledger whose role and parent group are known.
     for (let attempt = 0; attempt < 4; attempt += 1) {
+      await companyAccess.assertTarget({
+        company_id: companyId,
+        company_guid: companyGuid,
+        company: companyName,
+      });
       result = await engine.importXml(tally, xml, { timeoutMs });
       if (result.ok) return result;
 
@@ -363,6 +356,11 @@ export function createConnectorSocket({
       const masterXml = buildLedgerMasterImport({
         companyName,
         ledgers: freshLedgers,
+      });
+      await companyAccess.assertTarget({
+        company_id: companyId,
+        company_guid: companyGuid,
+        company: companyName,
       });
       const masterResult = await engine.importXml(tally, masterXml, {
         timeoutMs,
@@ -424,6 +422,7 @@ export function createConnectorSocket({
           socketId: result.socket_id || socket.id,
           registeredAt,
         });
+        void socket.publishCompanies();
         clearInterval(heartbeatTimer);
         heartbeatTimer = setInterval(() => {
           socket.emit(EVENTS.heartbeat, { at: new Date().toISOString() }, (heartbeat) => {
@@ -631,20 +630,17 @@ export function createConnectorSocket({
               ? request.purchase
               : request.sales || request.sales_order;
       if (!voucherData) throw new Error(`Server returned no voucher data for ${transactionLabel}.`);
-      const companyName = ledgerSync?.resolveCompany
-        ? ledgerSync.resolveCompany(config, request.destination?.company_id) ||
-          config.tallyCompany ||
-          request.destination?.company ||
-          request.destination?.company_name
-        : config.tallyCompany || request.destination?.company || request.destination?.company_name;
-      await assertCurrentTallyCompany(
-        companyName,
-        (Number(config.requestTimeoutSeconds) || 30) * 1000,
-      );
+      const target = await companyAccess.resolve(request.destination);
+      const companyName = target.company;
       voucherData = resolveVoucherItemCodes(voucherData, companyName, (input) =>
-        ledgerSync.resolveStockItem(config, input),
+        ledgerSync.resolveStockItem(config, { ...input, ...target }),
       );
-      voucherData = resolvePartyDealerCode(voucherData, companyName, transactionType);
+      voucherData = resolvePartyDealerCode(
+        voucherData,
+        companyName,
+        transactionType,
+        target.company_guid,
+      );
       update("building_xml", `${transactionLabel} fetched. Building Tally XML…`);
       const xml = isReceiptVoucher
         ? buildReceiptVoucherXml({ companyName, receipt: voucherData })
@@ -679,6 +675,8 @@ export function createConnectorSocket({
         tally: { url: config.tallyUrl },
         xml,
         companyName,
+        companyId: target.company_id,
+        companyGuid: target.company_guid,
         voucherData,
         transactionType,
         timeoutMs: (Number(config.requestTimeoutSeconds) || 30) * 1000,
@@ -781,6 +779,7 @@ export function createConnectorSocket({
         config,
         requestId,
         ledgerSync,
+        companyAccess,
       });
       update("succeeded", { tally_result: { statement } });
       onActivity?.({
@@ -824,7 +823,7 @@ export function createConnectorSocket({
         config,
         requestId,
         ledgerSync,
-        assertCompany: assertCurrentTallyCompany,
+        companyAccess,
       });
       update("succeeded", { tally_result: { movement_analysis: report } });
     } catch (error) {
@@ -853,7 +852,7 @@ export function createConnectorSocket({
       });
     try {
       update("fetching");
-      const summary = await fetchGroupSummary({ config, requestId, ledgerSync });
+      const summary = await fetchGroupSummary({ config, requestId, ledgerSync, companyAccess });
       update("succeeded", { tally_result: { summary } });
       onActivity?.({
         requestId,
@@ -893,7 +892,7 @@ export function createConnectorSocket({
     try {
       update("fetching");
       const { fetchOutstanding } = await import("../services/ledgerStatement.service.js");
-      const report = await fetchOutstanding({ config, requestId, ledgerSync });
+      const report = await fetchOutstanding({ config, requestId, ledgerSync, companyAccess });
       update("succeeded", { tally_result: { outstanding: report } });
       onActivity?.({
         requestId,
@@ -939,6 +938,7 @@ export function createConnectorSocket({
         !request.lookup
       )
         throw new Error("Invalid voucher lookup job.");
+      request.lookup = { ...request.lookup, ...(await companyAccess.resolve(request.lookup)) };
       transactionType = request.transaction_type;
       const isSales = transactionType === "sales_voucher_lookup";
       const label = isSales ? "Sales Voucher" : "Sales Order";
@@ -957,6 +957,7 @@ export function createConnectorSocket({
       if (search.status < 200 || search.status >= 300)
         throw new Error(`Tally lookup returned HTTP ${search.status}.`);
       const voucherId = parseSalesOrderSearchResponse(search.body, label);
+      await companyAccess.assertTarget(request.lookup);
       const response = await transport.postXml(
         tally,
         buildSalesOrderObjectRequest(request.lookup.company, voucherId),
@@ -1012,12 +1013,9 @@ export function createConnectorSocket({
       });
       const job = await fetchSalesPdfJob({ config, requestId });
       const request = job.lookup ? null : await fetchSalesVoucherRequest({ config, requestId });
-      // Direct lookup always uses the caller's company, never the Connector default.
-      const companyName =
-        job.lookup?.company ||
-        config.tallyCompany ||
-        request?.destination?.company ||
-        request?.destination?.company_name;
+      const target = await companyAccess.resolve(job.lookup || request?.destination);
+      const companyName = target.company;
+      if (job.lookup) job.lookup = { ...job.lookup, ...target };
       let voucherId = request?.tally_result?.lastVoucherId;
       if (job.lookup) {
         updateActivity(
@@ -1066,6 +1064,7 @@ export function createConnectorSocket({
         defaultTimeoutMs: timeoutMs,
         maxResponseBytes: 15 * 1024 * 1024,
       });
+      await companyAccess.assertTarget(target);
       const tallyResponse = await transport.postXml({ url: config.tallyUrl, timeoutMs }, xml, {
         timeoutMs,
         responseType: "buffer",

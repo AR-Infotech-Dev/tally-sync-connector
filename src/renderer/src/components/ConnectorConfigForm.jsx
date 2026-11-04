@@ -85,15 +85,6 @@ export default function ConnectorConfigForm({ config, onSave, onConnect }) {
           required
         />
       </label>
-      <label>
-        Tally Company Name
-        <input
-          name="tallyCompany"
-          value={form.tallyCompany || ""}
-          onChange={update}
-          placeholder="Company name in Tally"
-        />
-      </label>
       <div className="form-actions">
         <button className="button-secondary" type="submit" disabled={busy}>
           Save Configuration

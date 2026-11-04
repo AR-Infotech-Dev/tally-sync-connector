@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
+import { companyGuid, validateCompanyList } from "../../../companyIdentity.js";
+import { discoveredCompany } from "../../../companyKey.js";
 import { escapeXml } from "../../shared/utils/xmlHelpers.js";
+import { cacheIdFilter } from "../../shared/requests/cacheIdFilter.js";
 import { records, field, children, nameOf, yes, cents } from "./statement.js";
 import {
   inventoryDetails,
@@ -9,9 +12,9 @@ import {
 } from "./statementDetails.mapper.js";
 
 const TO = "20991231";
-function collection(company, name, body, fromDate) {
+function collection(company, name, body, fromDate, toDate = TO) {
   const period = fromDate
-    ? `<SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE><SVTODATE TYPE="Date">${TO}</SVTODATE>`
+    ? `<SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE><SVTODATE TYPE="Date">${toDate}</SVTODATE>`
     : "";
   return `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>${name}</ID></HEADER><BODY><DESC><STATICVARIABLES><SVCURRENTCOMPANY>${escapeXml(company)}</SVCURRENTCOMPANY>${period}<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE>${body}</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>`;
 }
@@ -19,6 +22,17 @@ function requireBooksDate(fromDate) {
   if (!/^\d{8}$/.test(fromDate || ""))
     throw new Error("Company BooksFrom/StartingFrom date is required for full-history sync.");
   return fromDate;
+}
+function voucherPeriodFilter(ids) {
+  cacheIdFilter(ids);
+  const period = "($Date >= ##SVFromDate) AND ($Date <= ##SVToDate)";
+  const expression = ids
+    ? `${period} AND (${ids.map((id) => `$MasterID = ${id}`).join(" OR ")})`
+    : period;
+  return {
+    filter: "<FILTER>FlowupsCacheVoucherPeriod</FILTER>",
+    formula: `<SYSTEM TYPE="Formulae" NAME="FlowupsCacheVoucherPeriod">${escapeXml(expression)}</SYSTEM>`,
+  };
 }
 
 export function buildCacheCompaniesRequest() {
@@ -30,30 +44,39 @@ export function buildCacheCompaniesRequest() {
   return collection(
     "",
     "Flowups Cache Companies",
-    `<COLLECTION NAME="Flowups Cache Companies"><TYPE>Company</TYPE><FETCH>Name,GUID,BooksFrom,StartingFrom,Address,PinCode,Email,PhoneNumber,MobileNumber,CompanyContactNumber</FETCH>${addressFields}</COLLECTION>`,
+    `<COLLECTION NAME="Flowups Cache Companies"><TYPE>Company</TYPE><FETCH>Name,GUID,CompanyNumber,DataPath,DirectoryName,BooksFrom,StartingFrom,Address,PinCode,Email,PhoneNumber,MobileNumber,CompanyContactNumber</FETCH><COMPUTE>FlowupsCompanyName : $Name</COMPUTE><COMPUTE>FlowupsCompanyNumber : $CompanyNumber</COMPUTE><COMPUTE>FlowupsCompanyPath : $DataPath</COMPUTE>${addressFields}</COLLECTION>`,
   );
 }
 export function parseCacheCompanies(xml) {
-  return records(xml, "COMPANY").map((node) => {
-    const name = field(node, "NAME") || node.getAttribute("NAME");
-    const guid = field(node, "GUID");
-    if (!name || !guid)
-      throw new Error("Tally company export must include Name and GUID for cache isolation.");
-    const booksFrom = field(node, "BOOKSFROM") || field(node, "STARTINGFROM");
-    return {
-      name,
-      guid,
-      books_from: requireBooksDate(booksFrom),
-      company_details: companyDetails(node),
-    };
-  });
+  return validateCompanyList(
+    records(xml, "COMPANY").map((node) => {
+      const name =
+        field(node, "NAME") || field(node, "FLOWUPSCOMPANYNAME") || node.getAttribute("NAME");
+      const guid = field(node, "GUID");
+      if (!name || !guid)
+        throw new Error("Tally company export must include Name and GUID for cache isolation.");
+      const booksFrom = field(node, "BOOKSFROM") || field(node, "STARTINGFROM");
+      return discoveredCompany({
+        name,
+        guid: companyGuid(guid),
+        books_from: requireBooksDate(booksFrom),
+        company_details: companyDetails(node),
+        company_number: field(node, "COMPANYNUMBER") || field(node, "FLOWUPSCOMPANYNUMBER"),
+        data_path:
+          field(node, "DATAPATH") ||
+          field(node, "FLOWUPSCOMPANYPATH") ||
+          field(node, "DIRECTORYNAME"),
+      });
+    }),
+  );
 }
 
-export function buildCacheLedgersRequest(company, fromDate) {
+export function buildCacheLedgersRequest(company, fromDate, ids) {
+  const { filter, formula } = cacheIdFilter(ids);
   return collection(
     company,
     "Flowups Cache Ledgers",
-    '<COLLECTION NAME="Flowups Cache Ledgers"><TYPE>Ledger</TYPE><FETCH>Name,Parent,MasterID,GUID,AlterID,OpeningBalance,Narration</FETCH><COMPUTE>FlowupsOpeningAmount : $$AsPositive:$OpeningBalance</COMPUTE><COMPUTE>FlowupsOpeningDr : $$IsDr:$OpeningBalance</COMPUTE><COMPUTE>FlowupsNarration : $Narration</COMPUTE></COLLECTION>',
+    `<COLLECTION NAME="Flowups Cache Ledgers"><TYPE>Ledger</TYPE><FETCH>Name,Parent,MasterID,GUID,AlterID,OpeningBalance,Narration</FETCH><COMPUTE>FlowupsOpeningAmount : $$AsPositive:$OpeningBalance</COMPUTE><COMPUTE>FlowupsOpeningDr : $$IsDr:$OpeningBalance</COMPUTE><COMPUTE>FlowupsNarration : $Narration</COMPUTE>${filter}</COLLECTION>${formula}`,
     requireBooksDate(fromDate),
   );
 }
@@ -88,20 +111,69 @@ export function parseCacheLedgers(xml) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function buildCacheManifestRequest(company, fromDate) {
+export function buildCacheManifestRequest(company, fromDate, toDate = TO, ids) {
+  const { filter, formula } = voucherPeriodFilter(ids);
   return collection(
     company,
     "Flowups Cache Manifest",
-    '<COLLECTION NAME="Flowups Cache Manifest"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,IsCancelled,IsOptional</FETCH></COLLECTION>',
+    `<COLLECTION NAME="Flowups Cache Manifest"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,IsCancelled,IsOptional</FETCH>${filter}</COLLECTION>${formula}`,
     requireBooksDate(fromDate),
+    requireBooksDate(toDate),
   );
+}
+export function buildCacheMasterIdsRequest(company, objectType, fromDate, toDate = TO) {
+  if (!["Ledger", "StockItem", "Voucher"].includes(objectType)) {
+    throw new TypeError("Unsupported cache master type.");
+  }
+  const { filter, formula } =
+    objectType === "Voucher" && fromDate ? voucherPeriodFilter() : { filter: "", formula: "" };
+  return collection(
+    company,
+    "Flowups Cache Master IDs",
+    `<COLLECTION NAME="Flowups Cache Master IDs"><TYPE>${objectType}</TYPE><FETCH>MasterID</FETCH>${filter}</COLLECTION>${formula}`,
+    fromDate ? requireBooksDate(fromDate) : undefined,
+    requireBooksDate(toDate),
+  );
+}
+export function buildCacheMasterManifestRequest(company, objectType, fromDate) {
+  return buildCacheMasterIdsRequest(company, objectType, fromDate).replace(
+    "<FETCH>MasterID</FETCH>",
+    "<FETCH>MasterID,AlterID</FETCH>",
+  );
+}
+export function parseCacheMasterManifest(xml, objectType) {
+  const ids = parseCacheMasterIds(xml, objectType);
+  const nodes = records(xml, objectType.toUpperCase());
+  return nodes.map((node, index) => {
+    const alter = field(node, "ALTERID");
+    if (!/^\d+$/.test(alter)) throw new Error("Master AlterID is required for resumable sync.");
+    return { id: ids[index], signature: `master-v1:${alter}` };
+  });
+}
+export function parseCacheMasterIds(xml, objectType) {
+  const ids = records(xml, objectType.toUpperCase()).map((node) => field(node, "MASTERID"));
+  if (ids.some((id) => !/^\d+$/.test(id) || Number(id) < 1) || new Set(ids).size !== ids.length) {
+    throw new Error("Tally returned invalid or duplicate MasterIDs during cache sync.");
+  }
+  return ids;
 }
 export const manifestKey = (rows) =>
   JSON.stringify([...rows].sort((a, b) => Number(a.id) - Number(b.id)));
-export function parseCacheManifest(xml) {
+export function parseCacheManifest(xml, { fromDate, toDate } = {}) {
   const rows = records(xml, "VOUCHER").map((node) => {
     const id = field(node, "MASTERID");
     const alter = field(node, "ALTERID");
+    const date = field(node, "DATE");
+    if (
+      (fromDate || toDate) &&
+      (!/^\d{8}$/.test(date) || (fromDate && date < fromDate) || (toDate && date > toDate))
+    )
+      throw Object.assign(
+        new Error(
+          "Tally returned a voucher outside the requested date range. The previous snapshot and checkpoints are preserved.",
+        ),
+        { code: "TALLY_MANIFEST_RANGE_MISMATCH" },
+      );
     if (!/^\d+$/.test(id) || Number(id) < 1 || !/^\d+$/.test(alter))
       throw new Error("Tally must return MasterID and AlterID for incremental ledger sync.");
     // Versioned payload forces one backfill of details for pre-upgrade snapshots.
@@ -126,14 +198,18 @@ export function parseCacheManifest(xml) {
   return rows;
 }
 
-export function buildCacheVoucherBatchRequest(company, ids, fromDate) {
+export function buildCacheVoucherBatchRequest(company, ids, fromDate, toDate) {
   if (!ids.length || ids.length > 100 || ids.some((id) => !/^\d+$/.test(id)))
     throw new Error("Invalid voucher sync batch.");
+  // IDs already come from the validated dated manifest. Deep native fetches can
+  // change Tally's date-variable context; validate dates again after parsing.
+  const { filter, formula } = cacheIdFilter(ids);
   return collection(
     company,
     "Flowups Cache Voucher Batch",
-    `<COLLECTION NAME="Flowups Cache Voucher Batch"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,Narration,IsCancelled,IsOptional,IsOrderVoucher,AllLedgerEntries.*,LedgerEntries.*,AllLedgerEntries.BankAllocations.*,LedgerEntries.BankAllocations.*,AllLedgerEntries.BillAllocations.*,LedgerEntries.BillAllocations.*,AllInventoryEntries.*,InventoryEntries.*,InventoryEntriesIn.*,InventoryEntriesOut.*</FETCH><COMPUTE>FlowupsNonPosting : $$IsSalesOrder:$VoucherTypeName OR $$IsPurcOrder:$VoucherTypeName OR $$IsDelNote:$VoucherTypeName OR $$IsRcptNote:$VoucherTypeName OR $$IsStockJournal:$VoucherTypeName OR $$IsPhyStock:$VoucherTypeName</COMPUTE><FILTER>FlowupsCacheIds</FILTER></COLLECTION><SYSTEM TYPE="Formulae" NAME="FlowupsCacheIds">${ids.map((id) => `$MasterID = ${id}`).join(" OR ")}</SYSTEM>`,
+    `<COLLECTION NAME="Flowups Cache Voucher Batch"><TYPE>Voucher</TYPE><FETCH>MasterID,AlterID,GUID,Date,VoucherNumber,VoucherTypeName,Narration,IsCancelled,IsOptional,IsOrderVoucher,AllLedgerEntries.*,LedgerEntries.*,AllLedgerEntries.BankAllocations.*,LedgerEntries.BankAllocations.*,AllLedgerEntries.BillAllocations.*,LedgerEntries.BillAllocations.*,AllInventoryEntries.*,InventoryEntries.*,InventoryEntriesIn.*,InventoryEntriesOut.*</FETCH><COMPUTE>FlowupsNonPosting : $$IsSalesOrder:$VoucherTypeName OR $$IsPurcOrder:$VoucherTypeName OR $$IsDelNote:$VoucherTypeName OR $$IsRcptNote:$VoucherTypeName OR $$IsStockJournal:$VoucherTypeName OR $$IsPhyStock:$VoucherTypeName</COMPUTE>${filter}</COLLECTION>${formula}`,
     requireBooksDate(fromDate),
+    toDate,
   );
 }
 

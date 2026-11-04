@@ -1,9 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { companyNameKey } from "../utils/companyName.js";
+import { createSyncCheckpointStore } from "./syncCheckpoint.model.js";
+import { normalizeSyncPlan } from "../services/syncPlan.js";
 import { createStockItemCache } from "./stockItemCache.model.js";
+import { createOpeningCache } from "./openingCache.model.js";
+import { outstandingBills } from "../services/outstandingBills.utils.js";
 
 export const cacheScope = (config) =>
   createHash("sha256")
@@ -51,6 +55,8 @@ export function createLedgerCache(filePath) {
     ["cache_vouchers", "details_json", "TEXT"],
     ["cache_entries", "bill_allocations_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["cache_companies", "company_details_json", "TEXT NOT NULL DEFAULT '{}'"],
+    ["cache_companies", "tally_guid", "TEXT NOT NULL DEFAULT ''"],
+    ["cache_companies", "identity_json", "TEXT NOT NULL DEFAULT '{}'"],
   ]) {
     if (
       !db
@@ -60,12 +66,32 @@ export function createLedgerCache(filePath) {
     )
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+  const checkpoints = createSyncCheckpointStore(db, transaction);
   const stockItems = createStockItemCache(db, transaction);
-  db.exec("PRAGMA user_version=4");
-  // Only unpublished staging rows belong to interrupted local sync attempts.
+  const openingCache = createOpeningCache(db);
+  // Legacy GUID-only datasets may already belong to a different restored branch.
+  // Retain their data but do not serve it under a newly discovered company identity.
   db.exec(
-    "DELETE FROM cache_entries WHERE dataset LIKE 'stage:%'; DELETE FROM cache_vouchers WHERE dataset LIKE 'stage:%'; DELETE FROM cache_ledgers WHERE dataset LIKE 'stage:%'; DELETE FROM cache_manifest WHERE dataset LIKE 'stage:%';",
+    "UPDATE cache_companies SET tally_guid=guid,active=0,sync_status='identity_upgrade_required' WHERE tally_guid=''; PRAGMA user_version=8",
   );
+  // Keep resumable sessions. Remove only legacy/orphan staging rows.
+  for (const table of [
+    "cache_entries",
+    "cache_vouchers",
+    "cache_ledgers",
+    "cache_manifest",
+    "cache_stock_items",
+    "cache_opening_bills",
+  ])
+    db.prepare(
+      `DELETE FROM ${table} WHERE dataset LIKE 'stage:%' AND dataset NOT IN (SELECT stage FROM cache_sync_sessions)`,
+    ).run();
+  db.prepare(
+    "DELETE FROM cache_sync_master_rows WHERE stage NOT IN (SELECT stage FROM cache_sync_sessions)",
+  ).run();
+  db.prepare(
+    "DELETE FROM cache_sync_range_plans WHERE stage NOT IN (SELECT stage FROM cache_sync_sessions)",
+  ).run();
 
   function transaction(callback) {
     db.exec("BEGIN IMMEDIATE");
@@ -102,7 +128,7 @@ export function createLedgerCache(filePath) {
   function listCompanies(scope) {
     return db
       .prepare(
-        "SELECT guid,name,last_synced_at,sync_status,sync_error,active FROM cache_companies WHERE scope=? ORDER BY name",
+        "SELECT guid,tally_guid,identity_json,name,last_synced_at,sync_status,sync_error,active FROM cache_companies WHERE scope=? ORDER BY name",
       )
       .all(scope);
   }
@@ -111,13 +137,26 @@ export function createLedgerCache(filePath) {
       "UPDATE cache_companies SET sync_status='failed',sync_error=?,last_attempt_at=? WHERE scope=?",
     ).run(String(error.message || error).slice(0, 500), new Date().toISOString(), scope);
   }
-  function begin(scope, identity) {
+  function begin(scope, identity, options = {}) {
     const dataset = `live:${scope}:${identity.guid}`;
-    const stage = `stage:${randomUUID()}`;
+    const plan = normalizeSyncPlan(options);
+    const session = checkpoints.begin(scope, identity.guid, plan, plan.batch_size);
     db.prepare(
-      "INSERT INTO cache_companies(scope,guid,name,dataset,last_attempt_at,sync_status,active) VALUES(?,?,?,?,?,'syncing',0) ON CONFLICT(scope,guid) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,sync_status='syncing',sync_error=NULL",
-    ).run(scope, identity.guid, identity.name, dataset, new Date().toISOString());
-    return { scope, ...identity, dataset, stage };
+      "INSERT INTO cache_companies(scope,guid,name,dataset,last_attempt_at,tally_guid,identity_json,sync_status,active) VALUES(?,?,?,?,?,?,?,'syncing',0) ON CONFLICT(scope,guid) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,tally_guid=excluded.tally_guid,identity_json=excluded.identity_json,sync_status='syncing',sync_error=NULL",
+    ).run(
+      scope,
+      identity.guid,
+      identity.name,
+      dataset,
+      new Date().toISOString(),
+      identity.tally_guid || identity.guid,
+      JSON.stringify({
+        company_number: identity.company_number || "",
+        data_path: identity.data_path || "",
+        identity_basis: identity.identity_basis || "legacy",
+      }),
+    );
+    return { scope, ...identity, dataset, ...session };
   }
   function signatures(run) {
     return new Map(
@@ -152,6 +191,7 @@ export function createLedgerCache(filePath) {
       "INSERT INTO cache_ledgers(dataset,name,parent_group,dealer_code,master_id,guid,opening_cents) VALUES(?,?,?,?,?,?,?)",
     );
     transaction(() => {
+      db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.stage);
       for (const row of rows)
         insert.run(
           run.stage,
@@ -164,6 +204,10 @@ export function createLedgerCache(filePath) {
         );
     });
   }
+  function stageOpening(run, bills) {
+    transaction(() => openingCache.stage(run, bills));
+    run.opening_ready = true;
+  }
   function stageVouchers(run, rows) {
     const voucher = db.prepare(
       "INSERT INTO cache_vouchers(dataset,id,alter_id,signature,date,voucher_no,voucher_type,narration,details_json) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -173,6 +217,7 @@ export function createLedgerCache(filePath) {
     );
     transaction(() => {
       for (const row of rows) {
+        db.prepare("DELETE FROM cache_vouchers WHERE dataset=? AND id=?").run(run.stage, row.id);
         voucher.run(
           run.stage,
           row.id,
@@ -201,26 +246,37 @@ export function createLedgerCache(filePath) {
             JSON.stringify(allocation.bill_allocations || []),
           );
       }
+      db.prepare("UPDATE cache_sync_sessions SET updated_at=? WHERE stage=?").run(
+        new Date().toISOString(),
+        run.stage,
+      );
     });
   }
   function discard(run) {
     transaction(() => {
+      openingCache.discard(run);
       stockItems.discardStockItems(run);
       db.prepare("DELETE FROM cache_vouchers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_manifest WHERE dataset=?").run(run.stage);
+      checkpoints.complete(run);
     });
   }
   function fail(run, error) {
-    discard(run);
+    checkpoints.fail(run, error);
     db.prepare(
-      "UPDATE cache_companies SET sync_status='failed',sync_error=? WHERE scope=? AND guid=?",
-    ).run(String(error.message || error).slice(0, 500), run.scope, run.guid);
+      "UPDATE cache_companies SET sync_status=?,sync_error=? WHERE scope=? AND guid=?",
+    ).run(
+      error.code === "SYNC_PAUSED" ? "paused" : "failed",
+      String(error.message || error).slice(0, 500),
+      run.scope,
+      run.guid,
+    );
   }
   function publish(run, manifest) {
     const now = new Date().toISOString();
     transaction(() => {
-      const insert = db.prepare("INSERT INTO cache_manifest VALUES(?,?,?)");
+      const insert = db.prepare("INSERT OR REPLACE INTO cache_manifest VALUES(?,?,?)");
       for (const row of manifest) insert.run(run.stage, row.id, row.signature);
       // Delete disappeared, cancelled/replaced and changed versions atomically;
       // cascading removes the old ledger allocations before replacement.
@@ -238,24 +294,86 @@ export function createLedgerCache(filePath) {
         "INSERT INTO cache_ledgers(dataset,name,parent_group,dealer_code,master_id,guid,opening_cents) SELECT ?,name,parent_group,dealer_code,master_id,guid,opening_cents FROM cache_ledgers WHERE dataset=?",
       ).run(run.dataset, run.stage);
       stockItems.publishStockItems(run);
-      const previousNames = db
-        .prepare("SELECT guid,name FROM cache_companies WHERE scope=? AND guid<>?")
-        .all(run.scope, run.guid);
-      for (const previous of previousNames.filter(
-        (row) => companyNameKey(row.name) === companyNameKey(run.name),
-      ))
-        db.prepare("UPDATE cache_companies SET active=0 WHERE scope=? AND guid=?").run(
-          run.scope,
-          previous.guid,
-        );
+      openingCache.publish(run);
       db.prepare(
         "UPDATE cache_companies SET name=?,last_synced_at=?,sync_status='ready',sync_error=NULL,active=1,company_details_json=? WHERE scope=? AND guid=?",
       ).run(run.name, now, JSON.stringify(run.company_details || {}), run.scope, run.guid);
       db.prepare("DELETE FROM cache_vouchers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.stage);
       db.prepare("DELETE FROM cache_manifest WHERE dataset=?").run(run.stage);
+      for (const key of run.components || ["company", "ledgers", "stock_items", "vouchers"])
+        checkpoints.ready(
+          run,
+          key,
+          run.dataset,
+          key === "company"
+            ? run.company_details || {}
+            : key === "vouchers"
+              ? {
+                  from_date: run.from_date,
+                  to_date: run.to_date,
+                  books_from: run.books_from,
+                  opening_ready: Boolean(run.opening_ready),
+                }
+              : {},
+        );
+      checkpoints.complete(run);
     });
     return now;
+  }
+  function saveMasterComponents(run, { keepStage = false } = {}) {
+    if (run.components.includes("ledgers")) {
+      const dataset = `component:${run.scope}:${run.guid}:ledgers`;
+      db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(dataset);
+      db.prepare(
+        "INSERT INTO cache_ledgers SELECT ?,name,parent_group,dealer_code,master_id,guid,opening_cents FROM cache_ledgers WHERE dataset=?",
+      ).run(dataset, run.stage);
+      checkpoints.ready(run, "ledgers", dataset);
+    }
+    if (run.components.includes("stock_items")) {
+      const dataset = `component:${run.scope}:${run.guid}:stock_items`;
+      stockItems.publishStockItems({ ...run, dataset }, { keepStage });
+      checkpoints.ready(run, "stock_items", dataset);
+    }
+    checkpoints.ready(run, "company", run.dataset, run.company_details || {});
+  }
+  function publishMasters(run) {
+    transaction(() => saveMasterComponents(run, { keepStage: true }));
+  }
+  function publishPartial(run) {
+    transaction(() => {
+      saveMasterComponents(run);
+      db.prepare(
+        "UPDATE cache_companies SET name=?,sync_status='partial',sync_error=NULL WHERE scope=? AND guid=?",
+      ).run(run.name, run.scope, run.guid);
+      db.prepare("DELETE FROM cache_ledgers WHERE dataset=?").run(run.stage);
+      db.prepare("DELETE FROM cache_manifest WHERE dataset=?").run(run.stage);
+      checkpoints.complete(run);
+    });
+    return new Date().toISOString();
+  }
+  function validateReportPeriod(scope, cached, input) {
+    const period = JSON.parse(
+      checkpoints.component(scope, cached.guid, "vouchers")?.details_json || "{}",
+    );
+    if (!period.from_date) return;
+    if (
+      (input.from_date && input.from_date < period.from_date) ||
+      (input.to_date && input.to_date > period.to_date)
+    )
+      throw cacheError(
+        `Requested dates are outside the cached period (${period.from_date} to ${period.to_date}). Sync the required period first.`,
+        409,
+      );
+    if (
+      !period.opening_ready &&
+      period.books_from &&
+      period.from_date.replaceAll("-", "") > period.books_from
+    )
+      throw cacheError(
+        "Opening balances and pending bills are missing from this older cache. Run Sync once for the selected period to prepare them.",
+        409,
+      );
   }
   function statement(scope, input, { syncing = false, connected = true } = {}) {
     const matches = db
@@ -263,7 +381,11 @@ export function createLedgerCache(filePath) {
         "SELECT * FROM cache_companies WHERE scope=? AND active=1 ORDER BY last_synced_at DESC",
       )
       .all(scope)
-      .filter((row) => companyNameKey(row.name) === companyNameKey(input.company));
+      .filter((row) =>
+        input.company_guid
+          ? row.guid.toLowerCase() === input.company_guid.toLowerCase()
+          : companyNameKey(row.name) === companyNameKey(input.company),
+      );
     if (!matches.length || !matches[0].last_synced_at)
       throw cacheError(
         "Local ledger cache is not ready for this company. Keep Connector and Tally connected until the initial sync completes.",
@@ -274,6 +396,7 @@ export function createLedgerCache(filePath) {
         409,
       );
     const cached = matches[0];
+    validateReportPeriod(scope, cached, input);
     const ledger = db
       .prepare("SELECT * FROM cache_ledgers WHERE dataset=? AND name=?")
       .get(cached.dataset, input.ledger_name);
@@ -342,7 +465,11 @@ export function createLedgerCache(filePath) {
         "SELECT * FROM cache_companies WHERE scope=? AND active=1 ORDER BY last_synced_at DESC",
       )
       .all(scope)
-      .filter((row) => companyNameKey(row.name) === companyNameKey(input.company));
+      .filter((row) =>
+        input.company_guid
+          ? row.guid.toLowerCase() === input.company_guid.toLowerCase()
+          : companyNameKey(row.name) === companyNameKey(input.company),
+      );
     if (!matches.length || !matches[0].last_synced_at)
       throw cacheError(
         "Local ledger cache is not ready for this company. Keep Connector and Tally connected until the initial sync completes.",
@@ -353,6 +480,7 @@ export function createLedgerCache(filePath) {
         409,
       );
     const cached = matches[0];
+    validateReportPeriod(scope, cached, input);
     const ledgers = db
       .prepare(
         "SELECT name,opening_cents FROM cache_ledgers WHERE dataset=? AND parent_group=? ORDER BY name",
@@ -427,13 +555,28 @@ export function createLedgerCache(filePath) {
 
   function outstanding(scope, input, { syncing = false, connected = true } = {}) {
     const company = input.company;
-    const cached = db
+    const matches = db
       .prepare(
-        "SELECT * FROM cache_companies WHERE scope=? AND active=1 AND lower(name)=lower(?) ORDER BY last_synced_at DESC",
+        "SELECT * FROM cache_companies WHERE scope=? AND active=1 ORDER BY last_synced_at DESC",
       )
-      .get(scope, company);
+      .all(scope)
+      .filter((row) =>
+        input.company_guid
+          ? row.guid.toLowerCase() === input.company_guid.toLowerCase()
+          : companyNameKey(row.name) === companyNameKey(company),
+      );
+    if (matches.length > 1)
+      throw cacheError(
+        "Company GUID is required to distinguish cached companies with the same name.",
+        409,
+      );
+    const cached = matches[0];
     if (!cached?.last_synced_at)
       throw cacheError("Local ledger cache is not ready for this company.");
+    validateReportPeriod(scope, cached, {
+      ...input,
+      to_date: input.to_date || new Date().toISOString().slice(0, 10),
+    });
     const ledgerName = input.ledger_name;
     const asOf = input.to_date || new Date().toISOString().slice(0, 10);
     const rows = db
@@ -441,10 +584,10 @@ export function createLedgerCache(filePath) {
         "SELECT v.date,v.voucher_no,v.voucher_type,e.bill_allocations_json FROM cache_entries e JOIN cache_vouchers v ON e.dataset=v.dataset AND e.voucher_id=v.id WHERE e.dataset=? AND e.ledger_name=? AND v.date<=?",
       )
       .all(cached.dataset, ledgerName, asOf);
-    const bills = [];
+    const allocations = [];
     for (const row of rows)
       for (const bill of JSON.parse(row.bill_allocations_json || "[]"))
-        bills.push({
+        allocations.push({
           date: row.date,
           voucher_no: row.voucher_no,
           voucher_type: row.voucher_type,
@@ -454,6 +597,10 @@ export function createLedgerCache(filePath) {
           direction: bill.direction || (Number(bill.amount || 0) < 0 ? "Dr" : "Cr"),
           due_date: bill.due_date || row.date,
         });
+    const bills = outstandingBills(openingCache.bills(cached.dataset, ledgerName), allocations, {
+      ...input,
+      to_date: asOf,
+    });
     const totalCents = bills.reduce(
       (sum, row) =>
         sum + Math.round(Math.abs(row.amount) * 100) * (row.direction === "Dr" ? 1 : -1),
@@ -478,11 +625,21 @@ export function createLedgerCache(filePath) {
   function resolveLedger(scope, input = {}) {
     const company = input.company;
     const matches = db
-      .prepare(
-        "SELECT * FROM cache_companies WHERE scope=? AND active=1 ORDER BY last_synced_at DESC",
-      )
+      .prepare("SELECT * FROM cache_companies WHERE scope=? ORDER BY last_synced_at DESC")
       .all(scope)
-      .filter((row) => companyNameKey(row.name) === companyNameKey(company));
+      .filter((row) =>
+        input.company_guid
+          ? row.guid.toLowerCase() === input.company_guid.toLowerCase()
+          : companyNameKey(row.name) === companyNameKey(company),
+      )
+      .map((row) => {
+        const master = !input.report_snapshot && checkpoints.component(scope, row.guid, "ledgers");
+        return master
+          ? { ...row, dataset: master.dataset, last_synced_at: master.updated_at }
+          : row.active
+            ? row
+            : { ...row, last_synced_at: null };
+      });
     if (!matches.length || !matches[0].last_synced_at)
       throw cacheError(
         "Local ledger cache is not ready for this company. Keep Connector and Tally connected until the initial sync completes.",
@@ -521,6 +678,15 @@ export function createLedgerCache(filePath) {
     return { ledger_name: row.name, ...(row.dealer_code ? { dealer_code: row.dealer_code } : {}) };
   }
   return {
+    manifestRangePlan: checkpoints.manifestPlan,
+    saveManifestRangePlan: checkpoints.saveManifestPlan,
+    masterCheckpointRows: checkpoints.masterRows,
+    saveMasterCheckpointRows: checkpoints.saveMasterRows,
+    prepareResume: checkpoints.prepare,
+    syncDetails: checkpoints.status,
+    component: checkpoints.component,
+    publishPartial,
+    publishMasters,
     begin,
     company,
     summary,
@@ -530,6 +696,7 @@ export function createLedgerCache(filePath) {
     ledgers,
     stageLedgers,
     stageVouchers,
+    stageOpening,
     publish,
     fail,
     failScope,

@@ -1,6 +1,6 @@
 {
   "name": "tally-sync-connector",
-  "version": "0.1.8",
+  "version": "0.1.17",
   "private": true,
   "description": "Flowups Tally Sync Connector desktop application",
   "author": "Flowups Technologies Pvt. Ltd.",
@@ -11,6 +11,7 @@
     "dev:ui": "vite --config vite.config.js",
     "dev:electron": "wait-on http://127.0.0.1:5173 && nodemon --watch src/main --watch src/preload --ext js,cjs --exec electron .",
     "build": "vite build --config vite.config.js",
+    "test": "node --test",
     "format": "prettier --write . && node scripts/format-xml-templates.js --write",
     "format:check": "prettier --check . && node scripts/format-xml-templates.js --check",
     "package:win": "npm run build && node scripts/build-protected.js --x64",

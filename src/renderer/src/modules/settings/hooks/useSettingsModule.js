@@ -49,7 +49,11 @@ export function useSettingsModule({ config, onConnect, onSaved }) {
       const companies =
         result.companies
           ?.filter((item) => item?.name)
-          .map((item) => ({ name: item.name, guid: item.guid || "" })) || [];
+          .map((item) => ({
+            name: item.name,
+            guid: item.guid || "",
+            company_id: item.company_id,
+          })) || [];
       setCompanyOptions(companies);
       setFeedback({
         kind: "success",

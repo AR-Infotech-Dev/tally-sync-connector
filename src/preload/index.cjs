@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("connector", {
   loadConfig: () => ipcRenderer.invoke("config:load"),
   getStatus: () => ipcRenderer.invoke("connector:status:get"),
   getLedgerSyncStatus: () => ipcRenderer.invoke("ledger-sync:status:get"),
+  startLocalSync: (options) => ipcRenderer.invoke("ledger-sync:start", options),
+  pauseLocalSync: () => ipcRenderer.invoke("ledger-sync:pause"),
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
   connect: () => ipcRenderer.invoke("connector:connect"),
   registerClient: (payload) => ipcRenderer.invoke("client:register", payload),

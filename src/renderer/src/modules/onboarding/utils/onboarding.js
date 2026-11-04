@@ -4,13 +4,12 @@ export function validateActivation(code) {
     : "Paste the complete activation code from your registration email.";
 }
 export function availableCompanies(result) {
-  return [...new Set((result.companies || []).map((company) => company.name).filter(Boolean))];
+  return (result.companies || []).filter((company) => company.name && company.guid);
 }
-export function setupReady(status, sync, company) {
+export function setupReady(status, sync) {
   return (
     status.registrationState === "registered" &&
     sync.state === "ready" &&
-    Boolean(sync.last_synced_at) &&
-    sync.company === company
+    Boolean(sync.last_synced_at)
   );
 }

@@ -3,6 +3,7 @@ import AppLayout from "./layouts/AppLayout.jsx";
 import ClientRegistrationForm from "./components/ClientRegistrationForm.jsx";
 import MonitorModulePage from "./modules/monitor/MonitorModulePage.jsx";
 import SettingsModulePage from "./modules/settings/SettingsModulePage.jsx";
+import SyncModulePage from "./modules/sync/SyncModulePage.jsx";
 import OnboardingModulePage from "./modules/onboarding/OnboardingModulePage.jsx";
 import LogsModulePage from "./modules/logs/LogsModulePage.jsx";
 import { useMonitorModule } from "./modules/monitor/hooks/useMonitorModule.js";
@@ -13,7 +14,6 @@ const initialConfig = {
   connectorId: "",
   connectorKey: "",
   tallyUrl: "http://127.0.0.1:9000",
-  tallyCompany: "",
   minimizeToTray: true,
   startWithWindows: false,
   requestTimeoutSeconds: 30,
@@ -70,7 +70,6 @@ export default function App() {
       clientId: result.clientId,
       connectorId: result.connectorId,
       connectorKey: "",
-      tallyCompany: "",
       onboardingPending: true,
     };
     const saved = await saveConfig(nextConfig);
@@ -79,7 +78,7 @@ export default function App() {
       state: "disconnected",
       socketConnected: false,
       registrationState: "not_registered",
-      message: `Account created. Paste the activation code emailed to ${result.email}, then choose your Tally company.`,
+      message: `Account created. Paste the activation code emailed to ${result.email}, then test the Tally connection.`,
     });
     setPage("onboarding");
   }
@@ -90,7 +89,6 @@ export default function App() {
       clientId: "",
       connectorId: "",
       connectorKey: "",
-      tallyCompany: "",
       onboardingPending: false,
     });
     setConfig(saved);
@@ -113,7 +111,7 @@ export default function App() {
           sync={monitor.ledgerSync}
           onSaved={setConfig}
           onConnect={connect}
-          onComplete={() => setPage("monitor")}
+          onComplete={() => setPage("sync")}
           onManual={() => setPage("settings")}
         />
       </div>
@@ -187,6 +185,7 @@ export default function App() {
         />
       )}
       {page === "logs" && <LogsModulePage onBack={() => setPage("monitor")} />}
+      {page === "sync" && <SyncModulePage status={monitor.status} sync={monitor.ledgerSync} />}
     </AppLayout>
   );
 }

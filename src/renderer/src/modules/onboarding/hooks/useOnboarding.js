@@ -7,13 +7,14 @@ export function useOnboarding({ config, onSaved, onConnect, onComplete }) {
   const [formData, setFormData] = useState({
     ...initialOnboardingValues,
     tallyUrl: config.tallyUrl,
-    company: config.tallyCompany || "",
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [companies, setCompanies] = useState([]);
-  const [started, setStarted] = useState(Boolean(config.connectorKey && config.tallyCompany));
+  const [started, setStarted] = useState(
+    Boolean(config.connectorKey && config.onboardingSyncStarted),
+  );
   const step = !config.connectorKey ? 0 : started ? 2 : 1;
   const change = (name, value) => {
     setFormData((current) => ({ ...current, [name]: value }));
@@ -44,7 +45,7 @@ export function useOnboarding({ config, onSaved, onConnect, onComplete }) {
         activationCode: formData.activationCode.trim(),
       });
       onSaved(saved);
-      setFormData((current) => ({ ...current, activationCode: "", company: "" }));
+      setFormData((current) => ({ ...current, activationCode: "" }));
     });
   };
   const discover = () =>
@@ -70,27 +71,19 @@ export function useOnboarding({ config, onSaved, onConnect, onComplete }) {
         );
       const names = availableCompanies(result);
       setCompanies(names);
-      setFormData((current) => ({
-        ...current,
-        company: names.includes(current.company)
-          ? current.company
-          : names.length === 1
-            ? names[0]
-            : "",
-      }));
       if (!names.length)
         throw new Error("No companies are open in Tally. Open your company and test again.");
     });
   const startSync = () => {
-    if (!companies.includes(formData.company)) {
-      setErrors({ company: "Select a company from the tested Tally connection." });
+    if (!companies.length) {
+      setErrors({ company: "Test Tally and open at least one company." });
       return;
     }
     return run(async () => {
       const saved = await saveOnboarding({
         ...config,
         tallyUrl: formData.tallyUrl,
-        tallyCompany: formData.company,
+        onboardingSyncStarted: true,
         onboardingPending: true,
       });
       onSaved(saved);
@@ -118,6 +111,9 @@ export function useOnboarding({ config, onSaved, onConnect, onComplete }) {
     startSync,
     finish,
     retry,
-    chooseCompany: () => setStarted(false),
+    retest: () => {
+      setStarted(false);
+      setCompanies([]);
+    },
   };
 }

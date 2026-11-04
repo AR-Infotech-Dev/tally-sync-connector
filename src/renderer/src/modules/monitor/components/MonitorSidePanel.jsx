@@ -97,7 +97,7 @@ export default function MonitorSidePanel({
           <Icon name="tally" size={17} />
           <h2>Tally Connection</h2>
         </div>
-        <Detail label="Company" value={config.tallyCompany || "Not selected"} />
+        <Detail label="Company" value={"All open companies"} />
         <Detail label="Tally URL" value={config.tallyUrl} />
         <Detail
           label="Status"

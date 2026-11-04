@@ -43,18 +43,45 @@ export default function LedgerSyncCard({ sync }) {
           {sync.error}
         </p>
       )}
+      {sync.active_checkpoint && (
+        <>
+          <p className="settings-note">
+            <strong>Saved locally — {sync.active_checkpoint.company}</strong>. These chunks survive
+            failure and restart.
+          </p>
+          <div className="ledger-sync-metrics" aria-label="Locally saved checkpoint counts">
+            <div>
+              <strong>{Number(sync.active_checkpoint.saved_masters || 0).toLocaleString()}</strong>
+              <span>Masters saved locally</span>
+            </div>
+            <div>
+              <strong>{Number(sync.active_checkpoint.saved_vouchers || 0).toLocaleString()}</strong>
+              <span>Vouchers saved locally</span>
+            </div>
+            <div>
+              <strong>{Number(sync.active_checkpoint.saved_entries || 0).toLocaleString()}</strong>
+              <span>Ledger entries saved locally</span>
+            </div>
+            <div>
+              <strong>{sync.active_checkpoint.state}</strong>
+              <span>Checkpoint status</span>
+            </div>
+          </div>
+        </>
+      )}
+      <p className="settings-note">Report-ready snapshot</p>
       <div className="ledger-sync-metrics">
         <div>
           <strong>{Number(sync.cached_ledgers || 0).toLocaleString()}</strong>
-          <span>Ledgers saved</span>
+          <span>Report-ready ledgers</span>
         </div>
         <div>
           <strong>{Number(sync.cached_vouchers || 0).toLocaleString()}</strong>
-          <span>Vouchers saved</span>
+          <span>Report-ready vouchers</span>
         </div>
         <div>
           <strong>{Number(sync.cached_entries || 0).toLocaleString()}</strong>
-          <span>Ledger entries saved</span>
+          <span>Report-ready ledger entries</span>
         </div>
         <div>
           <strong>{formatSyncTime(sync.last_synced_at)}</strong>
@@ -63,9 +90,9 @@ export default function LedgerSyncCard({ sync }) {
       </div>
       <div className="ledger-sync-footer">
         <span>
-          Next sync: {sync.next_sync_at ? formatSyncTime(sync.next_sync_at) : "Connect to schedule"}
+          Next sync: {sync.next_sync_at ? formatSyncTime(sync.next_sync_at) : "Manual — open Sync"}
         </span>
-        <span>Saved totals update after a complete company sync.</span>
+        <span>Chunks save immediately. Report-ready totals update after verification.</span>
       </div>
       {sync.companies?.length > 1 && (
         <div className="ledger-sync-companies">

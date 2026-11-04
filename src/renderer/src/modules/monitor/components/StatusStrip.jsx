@@ -66,12 +66,12 @@ export default function StatusStrip({ status, config, tallyStatus }) {
         title="Tally"
         value={tallyStatus?.ok ? "Connected" : "Not checked"}
         ok={tallyStatus?.ok}
-        detail={config.tallyCompany || config.tallyUrl || "Configure Tally"}
+        detail={config.tallyUrl || "Configure Tally"}
       />
       <StatusCell
         icon="settings"
         title="Company"
-        value={config.tallyCompany || "Not selected"}
+        value={"All open companies"}
         detail={`Client ${config.clientId || "not registered"}`}
       />
       <StatusCell

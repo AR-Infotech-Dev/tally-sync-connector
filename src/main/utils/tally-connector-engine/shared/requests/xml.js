@@ -1,10 +1,12 @@
 import { escapeXml } from "../utils/xmlHelpers.js";
+import { cacheIdFilter } from "./cacheIdFilter.js";
 
 export function buildCollectionRequest({
   collectionName,
   objectType,
   fetchFields = [],
   companyName,
+  masterIds,
 } = {}) {
   if (!collectionName || !objectType || !Array.isArray(fetchFields) || fetchFields.length === 0) {
     throw new TypeError("collectionName, objectType, and at least one fetchField are required.");
@@ -14,10 +16,11 @@ export function buildCollectionRequest({
     ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : "";
   const fields = escapeXml(fetchFields.join(","));
+  const { filter, formula } = cacheIdFilter(masterIds);
   return [
     "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE>",
     `<ID>${name}</ID></HEADER><BODY><DESC><STATICVARIABLES>${company}<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES>`,
-    `<TDL><TDLMESSAGE><COLLECTION NAME=\"${name}\" ISMODIFY=\"No\"><TYPE>${escapeXml(objectType)}</TYPE><FETCH>${fields}</FETCH></COLLECTION></TDLMESSAGE></TDL>`,
+    `<TDL><TDLMESSAGE><COLLECTION NAME=\"${name}\" ISMODIFY=\"No\"><TYPE>${escapeXml(objectType)}</TYPE><FETCH>${fields}</FETCH>${filter}</COLLECTION>${formula}</TDLMESSAGE></TDL>`,
     "</DESC></BODY></ENVELOPE>",
   ].join("");
 }

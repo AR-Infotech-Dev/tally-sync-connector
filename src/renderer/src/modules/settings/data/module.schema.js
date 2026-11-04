@@ -9,7 +9,7 @@ export const settingsModuleSchema = {
     {
       id: "tally",
       title: "Tally Connection",
-      description: "Choose the local TallyPrime company and test access.",
+      description: "Test access to all open TallyPrime companies.",
     },
     {
       id: "service",

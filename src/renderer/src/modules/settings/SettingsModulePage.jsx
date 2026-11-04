@@ -1,3 +1,4 @@
+import CompanyList from "../../components/CompanyList.jsx";
 import Icon from "../../components/Icon.jsx";
 import SettingsCard from "./components/SettingsCard.jsx";
 import { useSettingsModule } from "./hooks/useSettingsModule.js";
@@ -128,26 +129,14 @@ export default function SettingsModulePage({
               onChange={setField}
               placeholder="http://127.0.0.1:9000"
             />
-            <label className="settings-field">
-              <span>Company name</span>
-              <select
-                name="tallyCompany"
-                value={form.tallyCompany || ""}
-                onChange={(event) => setField("tallyCompany", event.target.value)}
-              >
-                <option value="">Select a company after testing Tally</option>
-                {form.tallyCompany &&
-                  !companyOptions.some((company) => company.name === form.tallyCompany) && (
-                    <option value={form.tallyCompany}>{form.tallyCompany} (saved)</option>
-                  )}
-                {companyOptions.map((company) => (
-                  <option key={company.guid || company.name} value={company.name}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="settings-field">
+              <span>Company access</span>
+              <p className="settings-note">
+                All open Tally companies. Each API request selects its company using company_id.
+              </p>
+            </div>
           </div>
+          <CompanyList companies={companyOptions} />
           <button
             className="button button-outline"
             type="button"
@@ -173,6 +162,12 @@ export default function SettingsModulePage({
             hint="Connect to Server automatically after sign-in."
             checked={form.startWithWindows}
             onChange={(value) => setField("startWithWindows", value)}
+          />
+          <ToggleField
+            label="Automatic incremental sync"
+            hint="Off for manual, one-time sync. When enabled, all open companies refresh every 3 minutes."
+            checked={form.autoSync}
+            onChange={(value) => setField("autoSync", value)}
           />
         </SettingsCard>
         <SettingsCard

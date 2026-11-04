@@ -38,6 +38,13 @@ export function createConnectorController({
   function getLedgerSyncStatus() {
     return ledgerSync.getStatus(getConfig());
   }
+  function startLocalSync(options) {
+    return ledgerSync.startManual(getConfig(), options);
+  }
+  function pauseLocalSync() {
+    ledgerSync.pause();
+    return { success: true };
+  }
 
   function saveConfig(config) {
     const previous = getConfig();
@@ -45,9 +52,11 @@ export function createConnectorController({
     if (
       previous.clientId !== saved.clientId ||
       previous.connectorKey !== saved.connectorKey ||
-      previous.serverUrl !== saved.serverUrl
+      previous.serverUrl !== saved.serverUrl ||
+      previous.tallyUrl !== saved.tallyUrl
     )
       disconnect();
+    else if (previous.autoSync !== saved.autoSync && socket?.connected) ledgerSync.start(saved);
     applySystemSettings?.(saved);
     return saved;
   }
@@ -59,7 +68,14 @@ export function createConnectorController({
       url: config.tallyUrl,
       timeoutMs: config.requestTimeoutSeconds * 1000,
     });
-    return { ...result, configuredCompany: config.tallyCompany };
+    const mapping = socket?.connected ? await socket.publishCompanies?.() : [];
+    return {
+      ...result,
+      companies: result.companies.map((company) => ({
+        ...company,
+        company_id: mapping?.find((row) => row.company_key === company.guid)?.company_id || null,
+      })),
+    };
   }
 
   function getActivity(options) {
@@ -81,8 +97,8 @@ export function createConnectorController({
       clientId: result.client_id,
       connectorId: result.connector_id,
       connectorKey: result.connector_key,
-      tallyCompany: "",
       onboardingPending: true,
+      onboardingSyncStarted: false,
     });
   }
   function clearActivity() {
@@ -154,6 +170,8 @@ export function createConnectorController({
   }
 
   return {
+    startLocalSync,
+    pauseLocalSync,
     getConfig,
     getStatus,
     getLedgerSyncStatus,
