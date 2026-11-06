@@ -7,6 +7,7 @@ export function syncPayload(form) {
     components.add("stock_items");
   }
   return {
+    refresh_opening: form.refresh_opening === true,
     from_date: form.from_date,
     to_date: form.to_date,
     company_guid: form.company_guid,

@@ -26,6 +26,7 @@ export function getSyncPresentation(sync) {
     discovering: "Finding open Tally companies…",
     reading: "Reading ledgers and checking voucher changes…",
     masters_ready: "Company, ledger and stock item masters are saved. Preparing transactions…",
+    opening_cached: "Using saved opening balances and pending bills. Historical scan skipped.",
     opening: `Preparing opening balances and older pending bills${sync.index_from ? ` (${sync.index_from}–${sync.index_to})` : ""}. Only historical summaries are downloaded.`,
     indexing: `Reading voucher IDs and versions in date ranges${sync.index_from ? ` (${sync.index_from}–${sync.index_to})` : ""}. ${Number(sync.indexed_vouchers || 0).toLocaleString()} IDs found. Voucher details save one chunk at a time.`,
     verifying: "Verifying data before saving the complete snapshot…",

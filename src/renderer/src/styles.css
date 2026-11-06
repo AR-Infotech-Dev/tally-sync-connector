@@ -224,8 +224,10 @@ button:disabled {
   padding: 20px 22px 14px;
 }
 .workspace-footer {
-  height: 30px;
-  flex: 0 0 30px;
+  min-height: 30px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: space-between;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -238,6 +240,13 @@ button:disabled {
 .footer-indicator {
   width: 7px;
   height: 7px;
+}
+.footer-service,
+.footer-branding {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .footer-divider {
   margin: 0 3px;
@@ -1279,8 +1288,9 @@ button:disabled {
     padding: 12px;
   }
   .workspace-footer {
-    height: 25px;
-    flex-basis: 25px;
+    min-height: 25px;
+    padding-top: 5px;
+    padding-bottom: 5px;
   }
 }
 @media (max-width: 620px) {

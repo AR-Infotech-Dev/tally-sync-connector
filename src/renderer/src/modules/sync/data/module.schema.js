@@ -23,5 +23,6 @@ export const initialSyncValues = {
   components: syncCategories.map((row) => row.key),
   batch_size: 100,
   delay_ms: 500,
+  refresh_opening: false,
 };
 export const batchSizes = [25, 50, 100];

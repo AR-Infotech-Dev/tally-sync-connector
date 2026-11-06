@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -8,6 +9,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   root: path.join(root, "src/renderer"),
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version),
+  },
   base: "./",
   resolve: { preserveSymlinks: true },
   server: { host: "127.0.0.1", port: 5173, strictPort: true },

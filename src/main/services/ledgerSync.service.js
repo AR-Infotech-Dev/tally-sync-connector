@@ -22,9 +22,12 @@ export async function syncLedgerCompany({
   components,
   from_date,
   to_date,
+  refresh_opening = false,
+  automatic = false,
 }) {
   const plan = normalizeSyncPlan({
     components,
+    refresh_opening,
     from_date,
     to_date,
     batch_size: batchSize,
@@ -74,7 +77,17 @@ export async function syncLedgerCompany({
       });
     }
     signal.throwIfAborted();
-    if (full && source.openingSnapshot)
+    const cachedOpening =
+      full && !plan.refresh_opening ? cache.openingBaseline?.(run, rawLedgers) : null;
+    if (automatic && full && source.openingSnapshot && !cachedOpening)
+      throw Object.assign(
+        new Error(
+          "Opening history needs a manual sync or refresh. Automatic sync will not scan historical data. Open Sync and start the selected company once.",
+        ),
+        { code: "OPENING_REFRESH_REQUIRED" },
+      );
+    let opening = cachedOpening;
+    if (full && source.openingSnapshot && !opening) {
       onProgress({
         company: identity.name,
         phase: "opening",
@@ -83,10 +96,25 @@ export async function syncLedgerCompany({
         index_from: null,
         index_to: null,
       });
-    const opening =
-      full && source.openingSnapshot
-        ? await source.openingSnapshot(identity.name, rawLedgers, plan.from_date)
-        : null;
+      opening = await source.openingSnapshot(identity.name, rawLedgers, plan.from_date);
+      signal.throwIfAborted();
+      const checkedOpening = await source.openingSnapshot(
+        identity.name,
+        rawLedgers,
+        plan.from_date,
+      );
+      const checkedMasters = await source.ledgers(identity.name);
+      signal.throwIfAborted();
+      if (
+        JSON.stringify(opening) !== JSON.stringify(checkedOpening) ||
+        JSON.stringify(rawLedgers) !== JSON.stringify(checkedMasters)
+      )
+        throw new Error(
+          "Opening history changed during preparation. Previous baseline and saved vouchers are preserved; retry manually.",
+        );
+      cache.saveOpeningBaseline?.(run, rawLedgers, opening);
+    }
+    if (cachedOpening) onProgress({ phase: "opening_cached", completed: 0, total: null });
     const ledgers = opening?.ledgers || rawLedgers;
     if (opening) cache.stageOpening(run, opening.bills);
     signal.throwIfAborted();
@@ -161,9 +189,13 @@ export async function syncLedgerCompany({
     const verifyRawLedgers = plan.components.includes("ledgers")
       ? await source.ledgers(identity.name)
       : [];
-    const verifyOpening = opening
-      ? await source.openingSnapshot(identity.name, verifyRawLedgers, plan.from_date)
-      : null;
+    // The verified baseline is independent of voucher refreshes. Never rescan history here.
+    const verifyOpening =
+      opening && cache.openingBaseline ? cache.openingBaseline(run, verifyRawLedgers) : opening;
+    if (opening && !verifyOpening)
+      throw new Error(
+        "Ledger opening inputs changed during sync. Refresh opening history manually; saved vouchers are preserved.",
+      );
     const verifyLedgers = verifyOpening?.ledgers || verifyRawLedgers;
     const verifyStockItems = plan.components.includes("stock_items")
       ? await source.stockItems(identity.name)
@@ -302,6 +334,8 @@ export function createLedgerSync({
             source,
             signal: abort.signal,
             components: plan.components,
+            refresh_opening: plan.refresh_opening,
+            automatic: options.automatic === true,
             from_date: plan.from_date,
             to_date: plan.to_date,
             batchSize: plan.batch_size,
@@ -318,11 +352,13 @@ export function createLedgerSync({
                   message:
                     update.phase === "masters_ready"
                       ? `Local sync: ${identity.name}, masters saved (${update.ledgers} ledgers, ${update.stock_items} stock items). Starting transaction preparation.`
-                      : update.phase === "opening"
-                        ? `Local sync: ${identity.name}, preparing opening balances and pending bills${update.index_from ? ` for ${update.index_from}–${update.index_to}` : ""}.`
-                        : update.phase === "indexing"
-                          ? `Local sync: ${identity.name}, reading voucher IDs and versions only. Saved detail chunks are retained.`
-                          : `Local sync: ${identity.name}, ${update.completed}/${update.total} ${update.phase === "masters" ? update.unit : "vouchers"} committed to SQLite; ${update.resumed || 0} reused from checkpoint.`,
+                      : update.phase === "opening_cached"
+                        ? `Local sync: ${identity.name}, reusing saved opening balances and pending bills; historical scan skipped.`
+                        : update.phase === "opening"
+                          ? `Local sync: ${identity.name}, preparing opening balances and pending bills${update.index_from ? ` for ${update.index_from}–${update.index_to}` : ""}.`
+                          : update.phase === "indexing"
+                            ? `Local sync: ${identity.name}, reading voucher IDs and versions only. Saved detail chunks are retained.`
+                            : `Local sync: ${identity.name}, ${update.completed}/${update.total} ${update.phase === "masters" ? update.unit : "vouchers"} committed to SQLite; ${update.resumed || 0} reused from checkpoint.`,
                   at: new Date().toISOString(),
                 });
             },
@@ -361,7 +397,7 @@ export function createLedgerSync({
       running = false;
       if (enabled && revision !== startedRevision && pendingAuto) {
         pendingAuto = false;
-        void tick();
+        void tick({ automatic: true });
       }
     }
   }
@@ -386,12 +422,12 @@ export function createLedgerSync({
     if (autoScheduled) {
       timer = setInterval(() => {
         progress = { ...progress, next_sync_at: new Date(Date.now() + intervalMs).toISOString() };
-        void tick();
+        void tick({ automatic: true });
       }, intervalMs);
       timer.unref?.();
       progress.next_sync_at = new Date(Date.now() + intervalMs).toISOString();
       if (running) pendingAuto = true;
-      else void tick();
+      else void tick({ automatic: true });
     }
   }
   function startManual(activeConfig, options) {

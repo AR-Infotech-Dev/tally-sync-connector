@@ -31,6 +31,7 @@ export function normalizeSyncPlan(input = {}) {
     throw new Error("Batch delay must be between 250 and 5000 milliseconds.");
   return {
     ...period,
+    refresh_opening: input.refresh_opening === true,
     components: SYNC_COMPONENTS.filter((key) => components.has(key)),
     batch_size: batchSize,
     delay_ms: delayMs,

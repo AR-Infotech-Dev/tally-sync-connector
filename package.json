@@ -1,6 +1,6 @@
 {
   "name": "tally-sync-connector",
-  "version": "0.1.17",
+  "version": "0.1.20",
   "private": true,
   "description": "Flowups Tally Sync Connector desktop application",
   "author": "Flowups Technologies Pvt. Ltd.",
@@ -74,7 +74,9 @@
       "shortcutName": "Flowups Tally Sync Connector",
       "installerIcon": "public/assets/flowups-connector.ico",
       "uninstallerIcon": "public/assets/flowups-connector.ico",
-      "installerHeaderIcon": "public/assets/flowups-connector.ico"
+      "installerHeaderIcon": "public/assets/flowups-connector.ico",
+      "deleteAppDataOnUninstall": false,
+      "include": "installer/data-retention.nsh"
     }
   }
 }

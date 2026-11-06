@@ -19,9 +19,15 @@ export default function AppLayout({ page, onNavigate, status, children }) {
         </header>
         <main className="workspace-content">{children}</main>
         <footer className="workspace-footer">
-          <span className="footer-indicator" />
-          Service active in system tray <span className="footer-divider">|</span> Tally Sync
-          Connector
+          <span className="footer-service">
+            <span className="footer-indicator" />
+            Service active in system tray
+          </span>
+          <span className="footer-branding">
+            Developed by Flowups Technologies Pvt. Ltd.
+            <span className="footer-divider">|</span>
+            v{__APP_VERSION__}
+          </span>
         </footer>
       </div>
     </div>

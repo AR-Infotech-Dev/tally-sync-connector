@@ -41,6 +41,7 @@ await bundleAndObfuscatePreload();
 copyProtectedRenderer();
 copyProtectedAssets();
 copyVoucherTemplates();
+copyInstallerResources();
 writePackagedManifest();
 validateStage();
 runElectronBuilder();
@@ -131,6 +132,13 @@ function copyVoucherTemplates() {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.copyFileSync(source, target);
   }
+}
+
+function copyInstallerResources() {
+  // The protected build is a separate project; NSIS includes must travel with it.
+  fs.cpSync(path.join(projectRoot, "installer"), path.join(stageDir, "installer"), {
+    recursive: true,
+  });
 }
 
 function writePackagedManifest() {

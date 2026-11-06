@@ -53,6 +53,7 @@ export function useSyncModule({ status, sync }) {
     run(async () => {
       const next = {
         ...formData,
+        refresh_opening: false,
         company_guid: checkpoint.guid,
         components: checkpoint.components,
         batch_size: checkpoint.batch_size,

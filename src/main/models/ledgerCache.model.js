@@ -697,6 +697,8 @@ export function createLedgerCache(filePath) {
     stageLedgers,
     stageVouchers,
     stageOpening,
+    openingBaseline: openingCache.baseline,
+    saveOpeningBaseline: openingCache.saveBaseline,
     publish,
     fail,
     failScope,

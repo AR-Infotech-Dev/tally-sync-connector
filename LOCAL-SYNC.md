@@ -24,7 +24,7 @@ Select Company details, Ledger masters, Stock item masters, or Vouchers. Company
 
 Choose 25, 50 or 100 vouchers per chunk and a 250–5000 ms delay (defaults: 100 / 500 ms). Ledger and stock master details are also read in chunks of at most 100 after a lightweight MasterID/AlterID index. Oversized responses reduce chunk size automatically. Use **Pause sync** to stop, and **Resume** beside a saved checkpoint or **Start / resume selected sync** with the same categories to continue. Only one local sync worker runs at a time. Open a closed company in Tally and refresh before resuming it.
 
-Automatic incremental sync is **off by default**, including installations without this preference. Settings > Background Service > Automatic incremental sync enables a complete refresh of all open companies every three minutes. A manual selection does not restrict API access to other companies. Pausing stops the current schedule until a new sync or connection/settings change starts it again.
+Automatic incremental sync is **off by default**, including installations without this preference. Settings > Background Service > Automatic sync checks current-period records for open companies every three minutes and reuses saved opening history. It never prepares missing opening history automatically. A manual selection does not restrict API access to other companies. Pausing stops the current schedule until a new sync or connection/settings change starts it again.
 
 SQLite keeps:
 
@@ -40,3 +40,15 @@ Successful complete voucher sync verifies its source again and atomically publis
 The local database upgrades in place to schema version 7. This change does not delete Tally files, repair TSTATE.TSF, change network shares, or guarantee elimination of Error 53. The client PC's Tally data path/access problem still needs verification. Tests cover an interrupted 9,960-voucher run after 3,000 committed records, SQLite reopen/resume, changed/deleted vouchers, master chunk reuse, pause, scoped selection, and partial report readiness. That fixture is not a live 9,960-voucher client test.
 
 Run `npm run build` for the renderer. Installed clients need a newly packaged 0.1.12 installer; building the UI alone does not update them.
+
+
+## Saved opening history
+Verified opening balances and pending bills are stored in cache_opening_baselines by server/client/Tally scope, company identity and From Date. Normal sync reuses them, including after restart or a later voucher failure. Automatic sync never creates or rebuilds a missing/invalid baseline; run manual Sync once. Change Refresh opening history after pre-period vouchers/bill allocations change or company restore. Historical changes are not automatically detected: reports reflect the last prepared baseline until manual refresh. Changes to ledger names, identity, Books From, or original opening amounts invalidate reuse. Date-range end changes alone do not invalidate the baseline. Failed refresh preserves the previous published report snapshot. Initial/explicit preparation is still verified twice and may be expensive; this change removes repeated historical work from subsequent automatic syncs, not Tally data-path errors.
+
+
+## Live Movement Analysis size limits
+Movement PDFs read live Tally data independently of local voucher sync. Exports now use explicit date and MasterID filters, select only inventory fields required by the report, and read calendar-month ranges sequentially. Oversized responses split dates down to a day, then split disjoint MasterID ranges. Chunk totals are combined before computing weighted rates. Out-of-range/duplicate IDs and failed chunks reject the entire report. A single-day timeout stops without repeated ID scans. The 5 MiB transport cap is unchanged. This needs the updated Connector; native client Tally verification remains required.
+
+
+## Reinstall and uninstall
+Normal uninstall keeps Electron userData (ledger-cache.sqlite, checkpoints, settings and logs). The interactive uninstaller asks whether to permanently remove this Windows user's saved data; No is the default. Updates and silent uninstallations preserve it. Select Yes only for a complete reset. This does not touch Tally company files. Reinstall as the same Windows user and use the same Server URL, Client ID and Tally URL/port to reuse the same cache scope. Manually deleting AppData removes the cache; changed company identity or incompatible historical cache migrations can still require a fresh sync. The prompt applies only to newly built uninstallers, not an already installed older version.

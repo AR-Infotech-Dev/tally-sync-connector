@@ -83,10 +83,26 @@ export default function SyncModulePage({ status, sync }) {
         </div>
         <p className="settings-note">
           Defaults to the current financial year (April–March). Voucher dates are inclusive. Masters
-          are synced independently of this period. Opening balances and older pending bills are
-          included automatically. Completing a different period replaces the company's report
-          snapshot.
+          are synced independently of this period. The first manual sync prepares opening balances
+          and older pending bills. Later syncs reuse the saved opening history. Completing a
+          different period replaces the company's report snapshot.
         </p>
+        <label className="sync-category">
+          <input
+            type="checkbox"
+            checked={form.formData.refresh_opening}
+            disabled={locked || !form.formData.components.includes("vouchers")}
+            onChange={(event) => form.change("refresh_opening", event.target.checked)}
+          />
+          <span>
+            <strong>Refresh opening history</strong>
+            <small>
+              Use after changing vouchers dated before From Date, restoring company data, or
+              changing old bill allocations. This can take time. Automatic sync does not check
+              historical changes.
+            </small>
+          </span>
+        </label>
         <fieldset className="sync-categories" disabled={locked}>
           <legend>Data to sync</legend>
           {syncCategories.map((category) => (
